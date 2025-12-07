@@ -2,6 +2,23 @@ import { ReactNode, useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { motion, AnimatePresence } from "framer-motion";
 import { Toaster } from "react-hot-toast";
+import {
+  DashboardIcon,
+  HospitalIcon,
+  PharmacyIcon,
+  DistributorIcon,
+  DoctorIcon,
+  PatientIcon,
+  OrdersIcon,
+  ReportsIcon,
+  TemplatesIcon,
+  ActivityIcon,
+  FinanceIcon,
+  SettingsIcon,
+  LogoutIcon,
+  MenuIcon,
+  CloseIcon,
+} from "./Icons";
 
 interface User {
   id: string;
@@ -17,18 +34,18 @@ interface LayoutProps {
 }
 
 const navItems = [
-  { path: "/dashboard", label: "Overview", icon: "📊" },
-  { path: "/hospital-management", label: "Hospital Management", icon: "🏥" },
-  { path: "/pharmacy-management", label: "Pharmacy Management", icon: "💊" },
-  { path: "/distributor-management", label: "Distributor Management", icon: "🚚" },
-  { path: "/doctor-panel", label: "Doctor Panel", icon: "👨‍⚕️" },
-  { path: "/patient-panel", label: "Patient Panel", icon: "👤" },
-  { path: "/orders", label: "Order Management", icon: "📋" },
-  { path: "/reports", label: "Prescription Reports", icon: "📄" },
-  { path: "/templates", label: "Document Templates", icon: "📄" },
-  { path: "/activity-panel", label: "Activity", icon: "🔔" },
-  { path: "/finance", label: "Finance", icon: "💰" },
-  { path: "/settings", label: "Settings", icon: "⚙️" },
+  { path: "/dashboard", label: "Overview", icon: DashboardIcon },
+  { path: "/hospital-management", label: "Hospital Management", icon: HospitalIcon },
+  { path: "/pharmacy-management", label: "Pharmacy Management", icon: PharmacyIcon },
+  { path: "/distributor-management", label: "Distributor Management", icon: DistributorIcon },
+  { path: "/doctor-management", label: "Doctor Management", icon: DoctorIcon },
+  { path: "/patient-panel", label: "Patient Panel", icon: PatientIcon },
+  { path: "/orders", label: "Order Management", icon: OrdersIcon },
+  { path: "/reports", label: "Prescription Reports", icon: ReportsIcon },
+  { path: "/templates", label: "Document Templates", icon: TemplatesIcon },
+  { path: "/activity-panel", label: "Activity", icon: ActivityIcon },
+  { path: "/finance", label: "Finance", icon: FinanceIcon },
+  { path: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function Layout({ children, user, currentPage }: LayoutProps) {
@@ -49,7 +66,7 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
   };
 
   return (
-    <div className="h-screen medical-bg-gradient flex overflow-hidden relative">
+    <div className="h-screen bg-gray-50 flex overflow-hidden relative">
       {/* Toast Notifications - Global */}
       <div className="fixed top-4 left-4 right-4 sm:left-auto sm:right-4 z-[9999] pointer-events-none">
         <div className="max-w-sm sm:max-w-none ml-auto">
@@ -97,12 +114,10 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
       {/* Mobile Menu Button */}
       <button
         onClick={() => setIsMobileMenuOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-white shadow-lg border-2 border-black hover:bg-blue-50 transition-colors"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-white shadow-lg border border-gray-300 hover:bg-blue-50 transition-colors"
         aria-label="Open menu"
       >
-        <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
+        <MenuIcon className="w-6 h-6 text-gray-700" />
       </button>
 
       {/* Mobile Menu Overlay */}
@@ -121,29 +136,27 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -100, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="lg:hidden fixed left-0 top-0 w-72 h-screen border-r border-blue-200 bg-white shadow-xl flex flex-col z-50"
+              className="lg:hidden fixed left-0 top-0 w-72 h-screen border-r border-gray-300 bg-white shadow-xl flex flex-col z-50"
             >
               {/* Mobile Header */}
-              <div className="px-6 py-6 border-b border-blue-200 flex items-center justify-between flex-shrink-0">
+              <div className="px-6 py-6 border-b border-gray-300 bg-blue-900 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center text-white text-lg font-bold shadow-lg">
-                    🏥
+                  <div className="h-12 w-12 rounded-lg bg-white flex items-center justify-center shadow-md">
+                    <HospitalIcon className="w-7 h-7 text-blue-900" />
                   </div>
                   <div>
-                    <h1 className="text-base font-bold tracking-wide text-black">
-                      Admin Portal
+                    <h1 className="text-base font-bold tracking-wide text-white">
+                      Healthcare Portal
                     </h1>
-                    <p className="text-xs text-black">Super Admin</p>
+                    <p className="text-xs text-blue-200">Administration</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-2 rounded-lg hover:bg-blue-50 transition-colors"
+                  className="p-2 rounded-lg hover:bg-blue-800 transition-colors"
                   aria-label="Close menu"
                 >
-                  <svg className="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <CloseIcon className="w-6 h-6 text-white" />
                 </button>
               </div>
 
@@ -163,16 +176,16 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
                       }}
                       className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                         isActive
-                          ? "bg-blue-50 text-blue-700 border-l-4 border-blue-600 shadow-sm"
-                          : "text-black hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"
+                          ? "bg-blue-50 text-blue-900 border-l-4 border-blue-900 shadow-sm"
+                          : "text-gray-700 hover:bg-gray-50 hover:text-blue-900 border-l-4 border-transparent"
                       }`}
                     >
-                      <span className="text-lg">{item.icon}</span>
+                      <item.icon className={`w-5 h-5 ${isActive ? "text-blue-900" : "text-gray-600"}`} />
                       <span className="flex-1 text-left">{item.label}</span>
                       {isActive && (
                         <motion.div
                           layoutId="activeIndicatorMobile"
-                          className="h-2 w-2 rounded-full bg-blue-600"
+                          className="h-2 w-2 rounded-full bg-blue-900"
                         />
                       )}
                     </motion.button>
@@ -182,23 +195,23 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
 
               {/* Mobile Footer */}
               {user && (
-                <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+                <div className="px-6 py-4 border-t border-gray-300 bg-gray-50 flex-shrink-0">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold shadow-md">
+                    <div className="h-10 w-10 rounded-full bg-blue-900 flex items-center justify-center text-white font-semibold shadow-md">
                       {user.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold medical-text-primary truncate">{user.name}</p>
-                      <p className="text-xs medical-text-secondary truncate">{user.email}</p>
+                      <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
+                      <p className="text-xs text-gray-600 truncate">{user.email}</p>
                     </div>
                   </div>
                   <motion.button
                     onClick={logout}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm font-medium hover:bg-red-100 transition-all"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm font-medium hover:bg-red-100 transition-all"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    <span>🚪</span>
+                    <LogoutIcon className="w-5 h-5" />
                     <span>Logout</span>
                   </motion.button>
                 </div>
@@ -213,24 +226,24 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
         initial={{ x: -100, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="hidden lg:flex fixed left-0 top-0 w-72 h-screen border-r border-blue-200 bg-white shadow-lg flex-col z-50"
+        className="hidden lg:flex fixed left-0 top-0 w-72 h-screen border-r border-gray-300 bg-white shadow-lg flex-col z-50"
       >
         {/* Fixed Header */}
-        <div className="px-6 py-6 border-b border-blue-200 flex-shrink-0">
+        <div className="px-6 py-6 border-b border-gray-300 bg-blue-900 flex-shrink-0">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1 }}
             className="flex items-center gap-3"
           >
-            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-600 to-green-600 flex items-center justify-center text-white text-lg font-bold shadow-lg">
-              🏥
+            <div className="h-12 w-12 rounded-lg bg-white flex items-center justify-center shadow-md">
+              <HospitalIcon className="w-7 h-7 text-blue-900" />
             </div>
             <div>
-              <h1 className="text-base font-bold tracking-wide text-black">
-                Admin Portal
+              <h1 className="text-base font-bold tracking-wide text-white">
+                Healthcare Portal
               </h1>
-              <p className="text-xs text-black">Super Admin</p>
+              <p className="text-xs text-blue-200">Administration</p>
             </div>
           </motion.div>
         </div>
@@ -248,18 +261,18 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
                 onClick={() => router.push(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                   isActive
-                    ? "bg-blue-50 text-blue-700 border-l-4 border-blue-600 shadow-sm"
-                    : "text-black hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"
+                    ? "bg-blue-50 text-blue-900 border-l-4 border-blue-900 shadow-sm"
+                    : "text-gray-700 hover:bg-gray-50 hover:text-blue-900 border-l-4 border-transparent"
                 }`}
                 whileHover={{ scale: 1.02, x: 4 }}
                 whileTap={{ scale: 0.98 }}
               >
-                <span className="text-lg">{item.icon}</span>
+                <item.icon className={`w-5 h-5 ${isActive ? "text-blue-900" : "text-gray-600"}`} />
                 <span className="flex-1 text-left">{item.label}</span>
                 {isActive && (
                   <motion.div
                     layoutId="activeIndicator"
-                    className="h-2 w-2 rounded-full bg-blue-600"
+                    className="h-2 w-2 rounded-full bg-blue-900"
                   />
                 )}
               </motion.button>
@@ -273,24 +286,24 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="px-6 py-4 border-t border-blue-200 bg-blue-50 flex-shrink-0"
+            className="px-6 py-4 border-t border-gray-300 bg-gray-50 flex-shrink-0"
           >
             <div className="flex items-center gap-3 mb-3">
-              <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold shadow-md">
+              <div className="h-10 w-10 rounded-full bg-blue-900 flex items-center justify-center text-white font-semibold shadow-md">
                 {user.name.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-black truncate">{user.name}</p>
-                <p className="text-xs text-black truncate">{user.email}</p>
+                <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
+                <p className="text-xs text-gray-600 truncate">{user.email}</p>
               </div>
             </div>
             <motion.button
               onClick={logout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm font-medium hover:bg-red-100 transition-all"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm font-medium hover:bg-red-100 transition-all"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              <span>🚪</span>
+              <LogoutIcon className="w-5 h-5" />
               <span>Logout</span>
             </motion.button>
           </motion.div>

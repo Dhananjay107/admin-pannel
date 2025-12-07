@@ -6,6 +6,16 @@ import Layout from "../components/Layout";
 import StatCard from "../components/StatCard";
 import AnimatedCard from "../components/AnimatedCard";
 import { getSocket, onSocketEvent, offSocketEvent } from "../services/socket";
+import {
+  HospitalIcon,
+  DoctorIcon,
+  PharmacyIcon,
+  DistributorIcon,
+  AppointmentsIcon,
+  InventoryIcon,
+  OrdersIcon,
+  RevenueIcon,
+} from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -211,11 +221,11 @@ export default function DashboardPage() {
 
       const handleOrderCreated = () => {
         fetchStats();
-      fetchActivities();
+        fetchActivities();
       };
 
       const handleOrderStatusUpdated = () => {
-      fetchStats();
+        fetchStats();
         fetchActivities();
       };
 
@@ -226,65 +236,77 @@ export default function DashboardPage() {
       onSocketEvent("order:created", handleOrderCreated);
       onSocketEvent("order:statusUpdated", handleOrderStatusUpdated);
 
-    return () => {
+      return () => {
         offSocketEvent("appointment:created", handleAppointmentCreated);
         offSocketEvent("prescription:created", handlePrescriptionCreated);
         offSocketEvent("prescription:formatted", handlePrescriptionCreated);
         offSocketEvent("prescription:finalized", handlePrescriptionCreated);
         offSocketEvent("order:created", handleOrderCreated);
         offSocketEvent("order:statusUpdated", handleOrderStatusUpdated);
-    };
+      };
     }
+
+    // Auto-refresh stats every 10 seconds
+    const statsInterval = setInterval(() => {
+      fetchStats();
+    }, 10000);
+
+    return () => {
+      clearInterval(statsInterval);
+    };
   }, [router]);
 
   if (!user) return null;
 
   return (
     <Layout user={user} currentPage="dashboard">
-      {/* Header */}
+      {/* Fixed Header */}
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="mb-6 sm:mb-8"
+        className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent"
       >
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex-1">
-            <h1 className="text-3xl sm:text-4xl font-bold text-black mb-2">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">
               Dashboard Overview
             </h1>
-            <p className="text-sm text-black">
+              <p className="text-sm text-gray-600">
               Real-time insights into your healthcare ecosystem
             </p>
           </div>
-          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
             <motion.div
               animate={{
                 scale: isPolling ? [1, 1.1, 1] : 1,
               }}
               transition={{ duration: 2, repeat: Infinity }}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white border-2 border-black"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white border border-gray-300"
             >
               <div
-                className={`h-3 w-3 rounded-full ${isPolling ? "bg-green-600" : "bg-black"}`}
+                  className={`h-2.5 w-2.5 rounded-full ${isPolling ? "bg-green-600" : "bg-gray-400"}`}
               />
-              <span className="text-sm font-semibold text-black">
+                <span className="text-xs font-semibold text-gray-700">
                 {isPolling ? "Live" : "Paused"}
               </span>
             </motion.div>
-            <div className="text-right px-4 py-2 bg-blue-50 rounded-lg border-2 border-blue-200">
-              <p className="text-xs uppercase tracking-wider text-blue-600 font-semibold mb-0.5">Role</p>
-              <p className="text-sm font-bold text-blue-700">{user.role}</p>
+              <div className="text-right px-3 py-1.5 bg-blue-50 rounded-md border border-blue-200">
+                <p className="text-xs uppercase tracking-wider text-blue-900 font-semibold leading-[100%]">Role</p>
+                <p className="text-sm font-bold text-blue-900 leading-[100%]">{user.role}</p>
+              </div>
             </div>
           </div>
         </div>
       </motion.header>
 
+      {/* Content Area */}
         {loading ? (
         <div className="flex items-center justify-center h-64">
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full"
+            className="w-12 h-12 border-4 border-blue-900 border-t-transparent rounded-full"
           />
         </div>
         ) : (
@@ -295,72 +317,72 @@ export default function DashboardPage() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer border-l-4 border-l-blue-600 hover:shadow-xl transition-all h-full"
+              whileHover={{ scale: 1.02, y: -2 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 group cursor-pointer border-l-4 border-l-blue-900 hover:shadow-md transition-all h-full"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-blue-50 rounded-xl">
-                  <span className="text-3xl">🏥</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <HospitalIcon className="w-6 h-6 text-blue-900" />
                 </div>
-                <span className="text-xs font-semibold text-green-700 bg-green-100 border border-green-300 px-3 py-1 rounded-full">Active</span>
+                <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-md">Active</span>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Hospitals</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.hospitalsCount ?? 0}</p>
-              <p className="text-xs text-black">Healthcare facilities</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Hospitals</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.hospitalsCount ?? 0}</p>
+              <p className="text-xs text-gray-600">Healthcare facilities</p>
             </motion.div>
 
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.2, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer border-l-4 border-l-green-600 hover:shadow-xl transition-all h-full"
+              whileHover={{ scale: 1.02, y: -2 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 group cursor-pointer border-l-4 border-l-blue-900 hover:shadow-md transition-all h-full"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-green-50 rounded-xl">
-                  <span className="text-3xl">👨‍⚕️</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <DoctorIcon className="w-6 h-6 text-blue-900" />
                 </div>
-                <span className="text-xs font-semibold text-green-700 bg-green-100 border border-green-300 px-3 py-1 rounded-full">Active</span>
+                <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-md">Active</span>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Doctors</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.doctorsCount ?? 0}</p>
-              <p className="text-xs text-black">Medical professionals</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Doctors</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.doctorsCount ?? 0}</p>
+              <p className="text-xs text-gray-600">Medical professionals</p>
             </motion.div>
 
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer border-l-4 border-l-blue-600 hover:shadow-xl transition-all h-full"
+              whileHover={{ scale: 1.02, y: -2 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 group cursor-pointer border-l-4 border-l-blue-900 hover:shadow-md transition-all h-full"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-blue-50 rounded-xl">
-                  <span className="text-3xl">💊</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <PharmacyIcon className="w-6 h-6 text-blue-900" />
                 </div>
-                <span className="text-xs font-semibold text-green-700 bg-green-100 border border-green-300 px-3 py-1 rounded-full">Active</span>
+                <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-md">Active</span>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Pharmacies</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.pharmaciesCount ?? 0}</p>
-              <p className="text-xs text-black">Dispensing units</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Pharmacies</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.pharmaciesCount ?? 0}</p>
+              <p className="text-xs text-gray-600">Dispensing units</p>
             </motion.div>
 
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.4, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer border-l-4 border-l-green-600 hover:shadow-xl transition-all h-full"
+              whileHover={{ scale: 1.02, y: -2 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 group cursor-pointer border-l-4 border-l-blue-900 hover:shadow-md transition-all h-full"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-green-50 rounded-xl">
-                  <span className="text-3xl">🚚</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <DistributorIcon className="w-6 h-6 text-blue-900" />
                 </div>
-                <span className="text-xs font-semibold text-green-700 bg-green-100 border border-green-300 px-3 py-1 rounded-full">Active</span>
+                <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded-md">Active</span>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Distributors</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.distributorsCount ?? 0}</p>
-              <p className="text-xs text-black">Supply chain partners</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Distributors</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.distributorsCount ?? 0}</p>
+              <p className="text-xs text-gray-600">Supply chain partners</p>
             </motion.div>
           </div>
 
@@ -370,57 +392,51 @@ export default function DashboardPage() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.5, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer hover:shadow-xl transition-all h-full border-l-4 border-l-blue-600"
-              onClick={() => router.push("/master")}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 h-full border-l-4 border-l-blue-900 cursor-pointer"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-blue-50 rounded-xl">
-                  <span className="text-3xl">📅</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <AppointmentsIcon className="w-6 h-6 text-blue-900" />
                 </div>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Appointments</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.appointmentsCount ?? 0}</p>
-              <p className="text-xs text-black">Total scheduled visits</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Appointments</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.appointmentsCount ?? 0}</p>
+              <p className="text-xs text-gray-600">Total scheduled visits</p>
             </motion.div>
 
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.6, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer hover:shadow-xl transition-all h-full border-l-4 border-l-green-600"
-              onClick={() => router.push("/inventory")}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 h-full border-l-4 border-l-blue-900 cursor-pointer"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-green-50 rounded-xl">
-                  <span className="text-3xl">📦</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <InventoryIcon className="w-6 h-6 text-blue-900" />
                 </div>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Stock Items</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.stockItems ?? 0}</p>
-              <p className="text-xs text-black">Pharmacy inventory</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Stock Items</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.stockItems ?? 0}</p>
+              <p className="text-xs text-gray-600">Pharmacy inventory</p>
             </motion.div>
 
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.7, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer hover:shadow-xl transition-all h-full border-l-4 border-l-blue-600"
-              onClick={() => router.push("/pharmacy")}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 h-full border-l-4 border-l-blue-900 cursor-pointer"
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-blue-50 rounded-xl">
-                  <span className="text-3xl">📦</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <OrdersIcon className="w-6 h-6 text-blue-900" />
                 </div>
-                <span className="text-xs font-semibold text-blue-700 bg-blue-100 border border-blue-300 px-3 py-1 rounded-full">
+                <span className="text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1 rounded-md">
                   {stats?.pendingOrders ?? 0} Pending
                 </span>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Patient Orders</h3>
-              <p className="text-4xl font-bold text-black mb-2">{stats?.patientOrders ?? 0}</p>
-              <p className="text-xs text-black">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Patient Orders</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">{stats?.patientOrders ?? 0}</p>
+              <p className="text-xs text-gray-600">
                 {stats?.activeOrders ?? 0} Active • {stats?.pendingOrders ?? 0} Pending
               </p>
             </motion.div>
@@ -429,18 +445,18 @@ export default function DashboardPage() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ delay: 0.8, duration: 0.3 }}
-              whileHover={{ scale: 1.03, y: -4 }}
-              className="medical-card group cursor-pointer hover:shadow-xl transition-all border-l-4 border-l-green-600 h-full"
+              whileHover={{ scale: 1.02, y: -2 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6 group cursor-pointer hover:shadow-md transition-all border-l-4 border-l-blue-900 h-full"
               onClick={() => router.push("/finance")}
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-4 bg-green-50 rounded-xl">
-                  <span className="text-3xl">💰</span>
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <RevenueIcon className="w-6 h-6 text-blue-900" />
                 </div>
               </div>
-              <h3 className="text-sm font-semibold text-black mb-2">Total Revenue</h3>
-              <p className="text-4xl font-bold text-green-600 mb-2">₹{(stats?.financeTotal ?? 0).toLocaleString()}</p>
-              <p className="text-xs text-black">Net across all units</p>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Total Revenue</h3>
+              <p className="text-3xl sm:text-4xl font-bold text-blue-900 mb-2">₹{(stats?.financeTotal ?? 0).toLocaleString()}</p>
+              <p className="text-xs text-gray-600">Net across all units</p>
             </motion.div>
           </div>
         </>

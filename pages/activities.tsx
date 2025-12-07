@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { motion } from "framer-motion";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
+import { ActivityIcon, DeleteIcon, AppointmentsIcon, PharmacyIcon, OrdersIcon, InventoryIcon, RevenueIcon, PatientIcon, DoctorIcon, HospitalIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -96,23 +97,55 @@ export default function ActivitiesPage() {
   }, [router]);
 
   const getActivityIcon = (type: string) => {
-    if (type.includes("APPOINTMENT")) return "📅";
-    if (type.includes("PRESCRIPTION")) return "💊";
-    if (type.includes("ORDER")) return "📦";
-    if (type.includes("INVENTORY")) return "📋";
-    if (type.includes("FINANCE")) return "💰";
-    if (type.includes("USER")) return "👤";
-    return "🔔";
+    if (type.includes("APPOINTMENT")) return <AppointmentsIcon className="w-6 h-6 text-blue-900" />;
+    if (type.includes("PRESCRIPTION")) return <PharmacyIcon className="w-6 h-6 text-blue-900" />;
+    if (type.includes("ORDER")) return <OrdersIcon className="w-6 h-6 text-blue-900" />;
+    if (type.includes("INVENTORY")) return <InventoryIcon className="w-6 h-6 text-blue-900" />;
+    if (type.includes("FINANCE")) return <RevenueIcon className="w-6 h-6 text-blue-900" />;
+    if (type.includes("USER")) return <PatientIcon className="w-6 h-6 text-blue-900" />;
+    return <ActivityIcon className="w-6 h-6 text-blue-900" />;
   };
 
   const getActivityColor = (type: string) => {
-    if (type.includes("APPOINTMENT")) return "text-blue-700 bg-blue-100 border-blue-300";
-    if (type.includes("PRESCRIPTION")) return "text-green-700 bg-green-100 border-green-300";
-    if (type.includes("ORDER")) return "text-blue-700 bg-blue-100 border-blue-300";
-    if (type.includes("INVENTORY")) return "text-green-700 bg-green-100 border-green-300";
-    if (type.includes("FINANCE")) return "text-green-700 bg-green-100 border-green-300";
-    if (type.includes("USER")) return "text-blue-700 bg-blue-100 border-blue-300";
-    return "text-black bg-white border-black";
+    if (type.includes("APPOINTMENT")) return "text-blue-900 bg-blue-50 border-blue-200";
+    if (type.includes("PRESCRIPTION")) return "text-blue-900 bg-blue-50 border-blue-200";
+    if (type.includes("ORDER")) return "text-blue-900 bg-blue-50 border-blue-200";
+    if (type.includes("INVENTORY")) return "text-blue-900 bg-blue-50 border-blue-200";
+    if (type.includes("FINANCE")) return "text-blue-900 bg-blue-50 border-blue-200";
+    if (type.includes("USER")) return "text-blue-900 bg-blue-50 border-blue-200";
+    return "text-gray-700 bg-gray-50 border-gray-300";
+  };
+
+  const clearAllActivities = async () => {
+    if (!confirm("Are you sure you want to delete all activities? This action cannot be undone.")) {
+      return;
+    }
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) {
+      toast.error("Authentication required");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/activities/all`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setActivities([]);
+        previousActivityIdsRef.current.clear();
+        toast.success(`Successfully deleted ${data.deletedCount || 0} activities`);
+      } else {
+        const error = await res.json().catch(() => ({ message: "Failed to delete activities" }));
+        toast.error(error.message || "Failed to delete activities");
+      }
+    } catch (e: any) {
+      toast.error("Error deleting activities");
+      console.error(e);
+    }
   };
 
   if (!user) return null;
@@ -122,30 +155,47 @@ export default function ActivitiesPage() {
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8"
+        className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent"
       >
-        <div className="flex-1 min-w-0">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-green-600">
-            Live Activities
-          </h2>
-          <p className="text-xs sm:text-sm text-black">
-            Real-time updates from all system activities
-          </p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-gray-900">
+                Live Activities
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-600">
+                Real-time updates from all system activities
+              </p>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <motion.div
+                animate={{
+                  scale: isPolling ? [1, 1.1, 1] : 1,
+                }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg bg-white border border-gray-300"
+              >
+                <div
+                  className={`h-2.5 w-2.5 rounded-full ${isPolling ? "bg-green-600" : "bg-gray-400"}`}
+                />
+                <span className="text-xs text-gray-700 font-semibold">
+                  {isPolling ? "Live" : "Paused"}
+                </span>
+              </motion.div>
+              {activities.length > 0 && (
+                <motion.button
+                  onClick={clearAllActivities}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-3 sm:px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-semibold transition-all flex items-center gap-2"
+                >
+                  <DeleteIcon className="w-4 h-4" />
+                  <span>Clear All</span>
+                </motion.button>
+              )}
+            </div>
+          </div>
         </div>
-        <motion.div
-          animate={{
-            scale: isPolling ? [1, 1.2, 1] : 1,
-          }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl bg-white border-2 border-black w-full sm:w-auto"
-        >
-          <div
-            className={`h-3 w-3 rounded-full ${isPolling ? "bg-green-600" : "bg-black"} shadow-lg`}
-          />
-          <span className="text-xs text-black font-semibold">
-            {isPolling ? "Live" : "Paused"}
-          </span>
-        </motion.div>
       </motion.header>
 
       {loading ? (
@@ -153,7 +203,7 @@ export default function ActivitiesPage() {
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full"
+            className="w-12 h-12 border-4 border-blue-900 border-t-transparent rounded-full"
           />
         </div>
       ) : (
@@ -165,32 +215,46 @@ export default function ActivitiesPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.03 }}
-                className="border-2 border-blue-200 rounded-xl p-4 bg-white hover:border-green-400 hover:shadow-md transition-all"
+                className="border border-gray-300 rounded-lg p-4 bg-white hover:border-blue-900 hover:shadow-md transition-all"
               >
                 <div className="flex items-start gap-3 sm:gap-4">
-                  <div className="text-2xl sm:text-3xl flex-shrink-0">{getActivityIcon(activity.type)}</div>
+                  <div className="flex-shrink-0 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                    {getActivityIcon(activity.type)}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                      <h3 className="font-semibold text-sm text-black break-words">{activity.title}</h3>
-                      <span className={`text-xs px-2 py-1 rounded-lg font-medium whitespace-nowrap border ${getActivityColor(activity.type)}`}>
+                      <h3 className="font-semibold text-sm text-gray-900 break-words">{activity.title}</h3>
+                      <span className={`text-xs px-2 py-1 rounded-md font-medium whitespace-nowrap border ${getActivityColor(activity.type)}`}>
                         {activity.type.replace(/_/g, " ")}
                       </span>
                     </div>
-                    <p className="text-xs text-black mb-3 break-words">{activity.description}</p>
-                    <div className="flex items-center gap-2 sm:gap-4 text-xs text-black flex-wrap">
+                    <p className="text-xs text-gray-700 mb-3 break-words">{activity.description}</p>
+                    <div className="flex items-center gap-2 sm:gap-4 text-xs text-gray-600 flex-wrap">
                       {activity.patientId && (
-                        <span className="font-medium">👤 Patient: {activity.patientId.slice(-8)}</span>
+                        <span className="font-medium flex items-center gap-1">
+                          <PatientIcon className="w-3 h-3" />
+                          Patient: {activity.patientId.slice(-8)}
+                        </span>
                       )}
                       {activity.doctorId && (
-                        <span className="font-medium">👨‍⚕️ Doctor: {activity.doctorId.slice(-8)}</span>
+                        <span className="font-medium flex items-center gap-1">
+                          <DoctorIcon className="w-3 h-3" />
+                          Doctor: {activity.doctorId.slice(-8)}
+                        </span>
                       )}
                       {activity.pharmacyId && (
-                        <span className="font-medium">💊 Pharmacy: {activity.pharmacyId.slice(-8)}</span>
+                        <span className="font-medium flex items-center gap-1">
+                          <PharmacyIcon className="w-3 h-3" />
+                          Pharmacy: {activity.pharmacyId.slice(-8)}
+                        </span>
                       )}
                       {activity.hospitalId && (
-                        <span className="font-medium">🏥 Hospital: {activity.hospitalId.slice(-8)}</span>
+                        <span className="font-medium flex items-center gap-1">
+                          <HospitalIcon className="w-3 h-3" />
+                          Hospital: {activity.hospitalId.slice(-8)}
+                        </span>
                       )}
-                      <span className="ml-auto font-medium">
+                      <span className="ml-auto font-medium text-gray-500">
                         {new Date(activity.createdAt).toLocaleString()}
                       </span>
                     </div>
@@ -199,9 +263,19 @@ export default function ActivitiesPage() {
               </motion.div>
             ))}
             {activities.length === 0 && (
-              <p className="text-sm text-black text-center py-8 font-medium">
-                No activities yet. Activities will appear here in real-time.
-              </p>
+              <div className="text-center py-12">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
+                    <ActivityIcon className="w-10 h-10 text-blue-900" />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-700 font-medium mb-2">
+                  No activities yet
+                </p>
+                <p className="text-xs text-gray-600">
+                  Activities will appear here in real-time
+                </p>
+              </div>
             )}
           </div>
         </AnimatedCard>

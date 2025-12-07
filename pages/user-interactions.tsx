@@ -42,10 +42,17 @@ export default function UserInteractionsPage() {
         
         // Fetch activities/logs as interactions
         const activitiesRes = await fetch(`${API_BASE}/api/activities?limit=100`, { headers });
-        const activities = activitiesRes.ok ? await activitiesRes.json() : [];
+        
+        if (!activitiesRes.ok) {
+          const errorData = await activitiesRes.json().catch(() => ({ message: "Failed to fetch activities" }));
+          throw new Error(errorData.message || `HTTP ${activitiesRes.status}`);
+        }
+        
+        const activities = await activitiesRes.json();
+        const activitiesArray = Array.isArray(activities) ? activities : [];
         
         // Process interactions
-        const processedInteractions = (Array.isArray(activities) ? activities : []).map((activity: any) => ({
+        const processedInteractions = activitiesArray.map((activity: any) => ({
           id: activity._id || activity.id,
           type: activity.type || "action",
           user: activity.userId || "System",
@@ -72,8 +79,24 @@ export default function UserInteractionsPage() {
           activeUsers: uniqueUsers.size,
           avgSessionTime: 0, // Would need session data
         });
-      } catch (e) {
-        toast.error("Failed to fetch user interactions");
+      } catch (e: any) {
+        // Handle connection errors gracefully
+        if (e.message?.includes("Failed to fetch") || e.message?.includes("ERR_CONNECTION_REFUSED")) {
+          // Backend might not be running - only show error on initial load
+          if (loading) {
+            console.warn("Cannot connect to backend server for user interactions");
+            setInteractions([]);
+            setStats({
+              totalInteractions: 0,
+              todayInteractions: 0,
+              activeUsers: 0,
+              avgSessionTime: 0,
+            });
+          }
+        } else {
+          console.error("Error fetching user interactions:", e);
+          toast.error(e.message || "Failed to fetch user interactions");
+        }
       } finally {
         setLoading(false);
       }

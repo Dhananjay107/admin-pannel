@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
+import { TemplatesIcon, PlusIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -560,16 +561,17 @@ export default function TemplatesPage() {
 
   return (
     <Layout user={user} currentPage="templates">
-      <motion.header initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-6 sm:mb-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-green-600">
-              Document Templates
-            </h2>
-            <p className="text-xs sm:text-sm text-black">
-              Create and customize templates for prescriptions, bills, reports, and appointment letters.
-            </p>
-          </div>
+      <motion.header initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-gray-900">
+                Document Templates
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-600">
+                Create and customize templates for prescriptions, bills, reports, and appointment letters.
+              </p>
+            </div>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -577,10 +579,12 @@ export default function TemplatesPage() {
               resetForm();
               setShowAddModal(true);
             }}
-            className="w-full sm:w-auto px-4 sm:px-6 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold text-sm shadow-lg transition-all"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2.5 rounded-lg bg-blue-900 hover:bg-blue-800 text-white font-semibold text-sm shadow-sm transition-all flex items-center gap-2"
           >
-            + New Template
+            <PlusIcon className="w-4 h-4" />
+            <span>New Template</span>
           </motion.button>
+          </div>
         </div>
       </motion.header>
 

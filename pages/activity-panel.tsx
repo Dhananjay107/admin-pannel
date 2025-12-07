@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
+import { DeleteIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -58,9 +59,16 @@ export default function ActivityPanelPage() {
       try {
         const headers = { Authorization: `Bearer ${token}` };
         const activitiesRes = await fetch(`${API_BASE}/api/activities?limit=100`, { headers });
-        const activities = activitiesRes.ok ? await activitiesRes.json() : [];
         
-        const processedInteractions = (Array.isArray(activities) ? activities : []).map((activity: any) => ({
+        if (!activitiesRes.ok) {
+          const errorData = await activitiesRes.json().catch(() => ({ message: "Failed to fetch activities" }));
+          throw new Error(errorData.message || `HTTP ${activitiesRes.status}`);
+        }
+        
+        const activities = await activitiesRes.json();
+        const activitiesArray = Array.isArray(activities) ? activities : [];
+        
+        const processedInteractions = activitiesArray.map((activity: any) => ({
           id: activity._id || activity.id,
           type: activity.type || "action",
           user: activity.userId || "System",
@@ -86,8 +94,24 @@ export default function ActivityPanelPage() {
           activeUsers: uniqueUsers.size,
           avgSessionTime: 0,
         });
-      } catch (e) {
-        toast.error("Failed to fetch user interactions");
+      } catch (e: any) {
+        // Handle connection errors gracefully
+        if (e.message?.includes("Failed to fetch") || e.message?.includes("ERR_CONNECTION_REFUSED")) {
+          // Backend might not be running - only show error on initial load
+          if (interactionsLoading) {
+            console.warn("Cannot connect to backend server for user interactions");
+          }
+          setInteractions([]);
+          setStats({
+            totalInteractions: 0,
+            todayInteractions: 0,
+            activeUsers: 0,
+            avgSessionTime: 0,
+          });
+        } else {
+          console.error("Error fetching user interactions:", e);
+          toast.error(e.message || "Failed to fetch user interactions");
+        }
       } finally {
         setInteractionsLoading(false);
       }
@@ -234,6 +258,44 @@ export default function ActivityPanelPage() {
     return idString.length > 8 ? idString.slice(-8) : idString;
   };
 
+  const clearAllActivities = async () => {
+    if (!confirm("Are you sure you want to delete all activities? This action cannot be undone.")) {
+      return;
+    }
+
+    if (!token) {
+      toast.error("Authentication required");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/activities/all`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setInteractions([]);
+        setActivities([]);
+        previousActivityIdsRef.current.clear();
+        setStats({
+          totalInteractions: 0,
+          todayInteractions: 0,
+          activeUsers: 0,
+          avgSessionTime: 0,
+        });
+        toast.success(`Successfully deleted ${data.deletedCount || 0} activities`);
+      } else {
+        const error = await res.json().catch(() => ({ message: "Failed to delete activities" }));
+        toast.error(error.message || "Failed to delete activities");
+      }
+    } catch (e: any) {
+      toast.error("Error deleting activities");
+      console.error(e);
+    }
+  };
+
   const filteredInteractions = interactions.filter((interaction) => {
     if (filterType !== "all" && interaction.type !== filterType) return false;
     
@@ -270,14 +332,31 @@ export default function ActivityPanelPage() {
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="mb-6 sm:mb-8"
+        className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent"
       >
-        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-green-600">
-          Activity Panel
-        </h2>
-        <p className="text-sm text-black">
-          Monitor user interactions, live activities, and patient-doctor conversations
-        </p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-gray-900">
+                Activity Panel
+              </h2>
+              <p className="text-sm text-gray-600">
+                Monitor user interactions, live activities, and patient-doctor conversations
+              </p>
+            </div>
+            {(interactions.length > 0 || activities.length > 0) && (
+              <motion.button
+                onClick={clearAllActivities}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-3 sm:px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs sm:text-sm font-semibold transition-all flex items-center gap-2"
+              >
+                <DeleteIcon className="w-4 h-4" />
+                <span>Clear All</span>
+              </motion.button>
+            )}
+          </div>
+        </div>
       </motion.header>
 
       {/* Section Buttons */}
@@ -408,10 +487,23 @@ export default function ActivityPanelPage() {
           ) : (
             <AnimatedCard delay={0.7}>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-black">Recent Interactions</h3>
-                <span className="text-sm text-black bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
-                  {filteredInteractions.length} {filteredInteractions.length === 1 ? "interaction" : "interactions"}
-                </span>
+                <h3 className="text-lg font-bold text-gray-900">Recent Interactions</h3>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 bg-blue-50 px-3 py-1 rounded-md border border-blue-200">
+                    {filteredInteractions.length} {filteredInteractions.length === 1 ? "interaction" : "interactions"}
+                  </span>
+                  {filteredInteractions.length > 0 && (
+                    <motion.button
+                      onClick={clearAllActivities}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold transition-all flex items-center gap-2"
+                    >
+                      <DeleteIcon className="w-3 h-3" />
+                      <span>Clear All</span>
+                    </motion.button>
+                  )}
+                </div>
               </div>
               <div className="space-y-3 max-h-[600px] overflow-y-auto">
                 {filteredInteractions.map((interaction, idx) => (
@@ -476,6 +568,20 @@ export default function ActivityPanelPage() {
             </div>
           ) : (
             <AnimatedCard delay={0.3}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Live Activities</h3>
+                {activities.length > 0 && (
+                  <motion.button
+                    onClick={clearAllActivities}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-semibold transition-all flex items-center gap-2"
+                  >
+                    <DeleteIcon className="w-3 h-3" />
+                    <span>Clear All</span>
+                  </motion.button>
+                )}
+              </div>
               <div className="space-y-3 max-h-[calc(100vh-250px)] overflow-y-auto">
                 {activities.map((activity, idx) => (
                   <motion.div

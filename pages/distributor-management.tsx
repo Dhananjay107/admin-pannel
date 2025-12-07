@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
+import { DistributorIcon, PlusIcon, EditIcon, DeleteIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -11,31 +12,24 @@ export default function DistributorManagementPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"distributor" | "stock" | "orders" | "distributor-orders">("distributor");
   
   // Distributor Management State
   const [distributors, setDistributors] = useState<any[]>([]);
-  const [newDistributor, setNewDistributor] = useState({ name: "", address: "", phone: "" });
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
   const [editingDistributor, setEditingDistributor] = useState<any>(null);
+  const [selectedDistributorForUser, setSelectedDistributorForUser] = useState<any>(null);
   
-  // Stock Management State
-  const [selectedDistributorForStock, setSelectedDistributorForStock] = useState("");
-  const [stockItems, setStockItems] = useState<any[]>([]);
-  const [newStockItem, setNewStockItem] = useState({
-    medicineName: "",
-    batchNumber: "",
-    expiryDate: "",
-    quantity: 0,
-    price: 0,
+  // Form states
+  const [distributorForm, setDistributorForm] = useState({ 
+    name: "", 
+    address: "", 
+    phone: "",
+    email: "",
+    password: ""
   });
-  const [editingStockItem, setEditingStockItem] = useState<any>(null);
-  
-  // Order Management State (from pharmacies)
-  const [pharmacyOrders, setPharmacyOrders] = useState<any[]>([]);
-  const [selectedDistributorForOrders, setSelectedDistributorForOrders] = useState("");
-  
-  // Distributor Orders State
-  const [distributorOrders, setDistributorOrders] = useState<any[]>([]);
+  const [userCredentials, setUserCredentials] = useState({ email: "", password: "", name: "" });
   
   const [loading, setLoading] = useState(true);
 
@@ -53,18 +47,7 @@ export default function DistributorManagementPage() {
   useEffect(() => {
     if (!token) return;
     fetchDistributors();
-    fetchDistributorOrders();
   }, [token]);
-
-  useEffect(() => {
-    if (!token || !selectedDistributorForStock) return;
-    fetchStock();
-  }, [token, selectedDistributorForStock]);
-
-  useEffect(() => {
-    if (!token || !selectedDistributorForOrders) return;
-    fetchPharmacyOrders();
-  }, [token, selectedDistributorForOrders]);
 
   const fetchDistributors = async () => {
     try {
@@ -78,66 +61,97 @@ export default function DistributorManagementPage() {
     }
   };
 
-  const fetchStock = async () => {
-    // This would need a distributor stock API endpoint
-    // For now, we'll use a placeholder
-    setStockItems([]);
-  };
-
-  const fetchPharmacyOrders = async () => {
-    // Fetch orders sent to this distributor from pharmacies
-    try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const res = await fetch(`${API_BASE}/api/distributor-orders?distributorId=${selectedDistributorForOrders}`, { headers });
-      const data = res.ok ? await res.json() : [];
-      setPharmacyOrders(Array.isArray(data) ? data : []);
-    } catch (e) {
-      toast.error("Failed to fetch pharmacy orders");
-    }
-  };
-
-  const fetchDistributorOrders = async () => {
-    try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const res = await fetch(`${API_BASE}/api/distributor-orders`, { headers });
-      setDistributorOrders(res.ok ? await res.json() : []);
-    } catch (e) {
-      toast.error("Failed to fetch distributor orders");
-    }
-  };
-
   const createDistributor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
     try {
-      const url = editingDistributor
-        ? `${API_BASE}/api/master/distributors/${editingDistributor._id}`
-        : `${API_BASE}/api/master/distributors`;
-      const method = editingDistributor ? "PATCH" : "POST";
-      
-      const res = await fetch(url, {
-        method,
+      // First create the distributor
+      const distributorRes = await fetch(`${API_BASE}/api/master/distributors`, {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(newDistributor),
+        body: JSON.stringify({
+          name: distributorForm.name,
+          address: distributorForm.address,
+          phone: distributorForm.phone,
+        }),
       });
-      if (res.ok) {
-        const created = await res.json();
-        if (editingDistributor) {
-          setDistributors((prev) => prev.map((d) => (d._id === editingDistributor._id ? created : d)));
-          setEditingDistributor(null);
+      
+      if (!distributorRes.ok) {
+        const error = await distributorRes.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to create distributor");
+      }
+
+      const createdDistributor = await distributorRes.json();
+
+      // Then create login credentials if email and password are provided
+      if (distributorForm.email && distributorForm.password) {
+        const userRes = await fetch(`${API_BASE}/api/users/signup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: distributorForm.name,
+            email: distributorForm.email,
+            password: distributorForm.password,
+            role: "DISTRIBUTOR",
+            distributorId: createdDistributor._id,
+          }),
+        });
+
+        if (!userRes.ok) {
+          const error = await userRes.json().catch(() => ({}));
+          // Distributor was created but user creation failed - still show distributor
+          toast.error(error.message || "Distributor created but failed to create login credentials");
         } else {
-          setDistributors((prev) => [created, ...prev]);
+          toast.success("Distributor and login credentials created successfully!");
         }
-        setNewDistributor({ name: "", address: "", phone: "" });
-        toast.success(`Distributor ${editingDistributor ? "updated" : "created"} successfully!`);
       } else {
-        toast.error(`Failed to ${editingDistributor ? "update" : "create"} distributor`);
+        toast.success("Distributor created successfully! You can create login credentials later.");
+      }
+
+      setDistributors((prev) => [createdDistributor, ...prev]);
+      setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+      setShowAddModal(false);
+    } catch (e: any) {
+      toast.error(e.message || "Error creating distributor");
+    }
+  };
+
+  const updateDistributor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !editingDistributor) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/master/distributors/${editingDistributor._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: distributorForm.name,
+          address: distributorForm.address,
+          phone: distributorForm.phone,
+        }),
+      });
+      
+      if (res.ok) {
+        const updated = await res.json();
+        setDistributors((prev) => prev.map((d) => (d._id === editingDistributor._id ? updated : d)));
+        setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+        setShowEditModal(false);
+        setEditingDistributor(null);
+        toast.success("Distributor updated successfully!");
+      } else {
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.message || "Failed to update distributor");
       }
     } catch (e) {
-      toast.error(`Error ${editingDistributor ? "updating" : "creating"} distributor`);
+      toast.error("Error updating distributor");
     }
   };
 
@@ -160,326 +174,434 @@ export default function DistributorManagementPage() {
     }
   };
 
-  const updateOrderStatus = async (orderId: string, newStatus: string) => {
-    if (!token) return;
+  const openEditModal = (distributor: any) => {
+    setEditingDistributor(distributor);
+    setDistributorForm({ name: distributor.name, address: distributor.address, phone: distributor.phone || "", email: "", password: "" });
+    setShowEditModal(true);
+  };
+
+  const openUserModal = (distributor: any) => {
+    setSelectedDistributorForUser(distributor);
+    setUserCredentials({ email: "", password: "", name: distributor.name });
+    setShowUserModal(true);
+  };
+
+  const createDistributorLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !selectedDistributorForUser) return;
+    
     try {
-      const res = await fetch(`${API_BASE}/api/distributor-orders/${orderId}/status`, {
-        method: "PATCH",
+      // Create login account for the distributor (not staff)
+      const userRes = await fetch(`${API_BASE}/api/users/signup`, {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({
+          name: userCredentials.name || selectedDistributorForUser.name,
+          email: userCredentials.email,
+          password: userCredentials.password,
+          role: "DISTRIBUTOR",
+          distributorId: selectedDistributorForUser._id,
+        }),
       });
-      if (res.ok) {
-        toast.success("Order status updated!");
-        fetchPharmacyOrders();
-        fetchDistributorOrders();
-      } else {
-        toast.error("Failed to update order status");
+
+      if (!userRes.ok) {
+        const error = await userRes.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to create login credentials");
       }
-    } catch (e) {
-      toast.error("Error updating order status");
+
+      toast.success("Distributor login credentials created successfully! Use these credentials to access the distributor panel.");
+      setShowUserModal(false);
+      setUserCredentials({ email: "", password: "", name: "" });
+      setSelectedDistributorForUser(null);
+    } catch (e: any) {
+      toast.error(e.message || "Error creating distributor login credentials");
     }
   };
 
   if (!user) return null;
-
-  const tabs = [
-    { id: "distributor", label: "Distributor Management", icon: "🚚" },
-    { id: "stock", label: "Stock Management", icon: "📦" },
-    { id: "orders", label: "Order Management", icon: "📋" },
-    { id: "distributor-orders", label: "Distributor Orders", icon: "🚛" },
-  ];
 
   return (
     <Layout user={user} currentPage="distributor-management">
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="mb-6 sm:mb-8"
+        className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent"
       >
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-black">
-              Distributor Management
-            </h2>
-            <p className="text-sm text-gray-600">
-              Manage distributors, stock, orders, and distributor orders
-            </p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-gray-900">
+                Distributor Management
+              </h2>
+              <p className="text-sm text-gray-600">
+                Manage distributors and create login credentials for distributor staff
+              </p>
+            </div>
+            <motion.button
+              onClick={() => {
+                setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+                setShowAddModal(true);
+              }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white font-semibold rounded-lg shadow-sm transition-all flex items-center gap-2 text-sm sm:text-base"
+            >
+              <PlusIcon className="w-4 h-4" />
+              <span>Add New Distributor</span>
+            </motion.button>
           </div>
         </div>
       </motion.header>
 
-      {/* Tabs */}
-      <div className="mb-6">
-        <div className="flex flex-wrap gap-2">
-          {tabs.map((tab) => (
-            <motion.button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === tab.id
-                  ? "bg-purple-600 text-white shadow-lg"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              <span>{tab.icon}</span>
-              <span>{tab.label}</span>
-            </motion.button>
-          ))}
+      {/* Distributors Grid */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-8 h-8 border-4 border-blue-900 border-t-transparent rounded-full animate-spin" />
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {distributors.map((d, idx) => (
+            <AnimatedCard key={d._id} delay={idx * 0.1}>
+              <div className="p-6 border border-gray-300 rounded-lg bg-white hover:shadow-md transition-all">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
+                      <DistributorIcon className="w-6 h-6 text-blue-900" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-lg text-gray-900">{d.name}</h3>
+                      <p className="text-xs text-gray-500">ID: {d._id.slice(-8)}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-400">📍</span>
+                    <p className="text-sm text-gray-600 flex-1">{d.address}</p>
+                  </div>
+                  {d.phone && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400">📞</span>
+                      <p className="text-sm text-gray-600">{d.phone}</p>
+                    </div>
+                  )}
+                </div>
 
-      {/* Distributor Management Tab */}
-      {activeTab === "distributor" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <AnimatedCard delay={0.1} className="lg:col-span-1">
-            <h3 className="text-lg font-bold text-black mb-4">
-              {editingDistributor ? "Edit Distributor" : "Add New Distributor"}
-            </h3>
+                <div className="flex gap-2 pt-4 border-t border-gray-100">
+                  <motion.button
+                    onClick={() => openEditModal(d)}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex-1 px-3 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-2"
+                  >
+                    <EditIcon className="w-4 h-4" />
+                    <span>Edit</span>
+                  </motion.button>
+                  <motion.button
+                    onClick={() => openUserModal(d)}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex-1 px-3 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 text-sm font-medium transition-all"
+                  >
+                    Create Login
+                  </motion.button>
+                  <motion.button
+                    onClick={() => deleteDistributor(d._id)}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
+                  >
+                    <DeleteIcon className="w-4 h-4" />
+                  </motion.button>
+                </div>
+              </div>
+            </AnimatedCard>
+          ))}
+          
+          {distributors.length === 0 && (
+            <div className="col-span-full text-center py-12">
+              <div className="flex justify-center mb-4">
+                <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
+                  <DistributorIcon className="w-10 h-10 text-blue-900" />
+                </div>
+              </div>
+              <p className="text-lg text-gray-700 font-medium mb-2">No distributors found</p>
+              <p className="text-sm text-gray-600">Click "Add New Distributor" to get started</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add Distributor Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Add New Distributor</h2>
             <form onSubmit={createDistributor} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-black mb-2">Distributor Name</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Distributor Name <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
-                  value={newDistributor.name}
-                  onChange={(e) => setNewDistributor((prev) => ({ ...prev, name: e.target.value }))}
                   required
+                  value={distributorForm.name}
+                  onChange={(e) => setDistributorForm({ ...distributorForm, name: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  placeholder="Enter distributor name"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-black mb-2">Address</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Address <span className="text-red-500">*</span>
+                </label>
                 <textarea
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
-                  rows={3}
-                  value={newDistributor.address}
-                  onChange={(e) => setNewDistributor((prev) => ({ ...prev, address: e.target.value }))}
                   required
+                  rows={3}
+                  value={distributorForm.address}
+                  onChange={(e) => setDistributorForm({ ...distributorForm, address: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  placeholder="Enter distributor address"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-black mb-2">Phone (Optional)</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Phone <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="tel"
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
-                  value={newDistributor.phone}
-                  onChange={(e) => setNewDistributor((prev) => ({ ...prev, phone: e.target.value }))}
+                  required
+                  value={distributorForm.phone}
+                  onChange={(e) => setDistributorForm({ ...distributorForm, phone: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  placeholder="Enter phone number"
                 />
               </div>
-              <div className="flex gap-2">
-                {editingDistributor && (
-                  <motion.button
-                    type="button"
-                    onClick={() => {
-                      setEditingDistributor(null);
-                      setNewDistributor({ name: "", address: "", phone: "" });
-                    }}
-                    className="flex-1 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2.5 text-sm transition-all"
-                  >
-                    Cancel
-                  </motion.button>
-                )}
-                <motion.button
+
+              <div className="pt-4 border-t border-gray-200">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Login Credentials</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Email <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      autoComplete="new-password"
+                      value={distributorForm.email}
+                      onChange={(e) => setDistributorForm({ ...distributorForm, email: e.target.value })}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                      placeholder="distributor@example.com"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">This will be used to login to the distributor panel</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Password <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      autoComplete="new-password"
+                      value={distributorForm.password}
+                      onChange={(e) => setDistributorForm({ ...distributorForm, password: e.target.value })}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                      placeholder="Enter new password for distributor"
+                      minLength={6}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Create a new password for distributor access</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
                   type="submit"
-                  className={`${editingDistributor ? "flex-1" : "w-full"} rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-semibold py-2.5 text-sm shadow-lg transition-all`}
+                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
                 >
-                  {editingDistributor ? "Update" : "Add Distributor"}
-                </motion.button>
+                  Create Distributor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+                >
+                  Cancel
+                </button>
               </div>
             </form>
-          </AnimatedCard>
-
-          <AnimatedCard delay={0.2} className="lg:col-span-2">
-            <h3 className="text-lg font-bold text-black mb-4">Distributors List</h3>
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
-              {distributors.map((d, idx) => (
-                <motion.div
-                  key={d._id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="border border-gray-200 rounded-lg p-4 bg-white hover:border-purple-300 hover:shadow-md transition-all"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-2xl">🚚</span>
-                        <h4 className="font-bold text-lg text-black">{d.name}</h4>
-                      </div>
-                      <p className="text-sm text-gray-600 mb-1">{d.address}</p>
-                      {d.phone && <p className="text-sm text-gray-600">📞 {d.phone}</p>}
-                    </div>
-                    <div className="flex gap-2">
-                      <motion.button
-                        onClick={() => {
-                          setEditingDistributor(d);
-                          setNewDistributor({ name: d.name, address: d.address, phone: d.phone || "" });
-                        }}
-                        className="px-4 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-sm font-medium"
-                      >
-                        ✏️ Edit
-                      </motion.button>
-                      <motion.button
-                        onClick={() => deleteDistributor(d._id)}
-                        className="px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium"
-                      >
-                        🗑️ Delete
-                      </motion.button>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </AnimatedCard>
+          </motion.div>
         </div>
       )}
 
-      {/* Stock Management Tab */}
-      {activeTab === "stock" && (
-        <AnimatedCard delay={0.1}>
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-black mb-2">Select Distributor</label>
-            <select
-              className="w-full max-w-md rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
-              value={selectedDistributorForStock}
-              onChange={(e) => setSelectedDistributorForStock(e.target.value)}
-            >
-              <option value="">Select a distributor</option>
-              {distributors.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {selectedDistributorForStock && (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-3">📦</div>
-              <p className="text-sm text-gray-600 font-medium">Stock Management</p>
-              <p className="text-xs text-gray-500 mt-1">Stock management feature coming soon</p>
-            </div>
-          )}
-        </AnimatedCard>
-      )}
-
-      {/* Order Management Tab (Pharmacy Orders) */}
-      {activeTab === "orders" && (
-        <AnimatedCard delay={0.1}>
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-black mb-2">Select Distributor</label>
-            <select
-              className="w-full max-w-md rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all"
-              value={selectedDistributorForOrders}
-              onChange={(e) => setSelectedDistributorForOrders(e.target.value)}
-            >
-              <option value="">Select a distributor</option>
-              {distributors.map((d) => (
-                <option key={d._id} value={d._id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {selectedDistributorForOrders && (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
-              {pharmacyOrders.map((order, idx) => (
-                <motion.div
-                  key={order._id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-all"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xl">📋</span>
-                        <h4 className="font-bold text-black">{order.medicineName}</h4>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          order.status === "PENDING" ? "bg-yellow-100 text-yellow-700" :
-                          order.status === "ACCEPTED" ? "bg-blue-100 text-blue-700" :
-                          order.status === "DELIVERED" ? "bg-green-100 text-green-700" :
-                          "bg-gray-100 text-gray-700"
-                        }`}>
-                          {order.status}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600">Quantity: {order.quantity}</p>
-                      <p className="text-sm text-gray-600">Pharmacy: {order.pharmacyId?.slice(-8)}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      {order.status === "PENDING" && (
-                        <motion.button
-                          onClick={() => updateOrderStatus(order._id, "ACCEPTED")}
-                          className="px-4 py-2 rounded-lg bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 text-sm font-medium"
-                        >
-                          Accept
-                        </motion.button>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-              {pharmacyOrders.length === 0 && (
-                <div className="text-center py-12">
-                  <div className="text-4xl mb-3">📋</div>
-                  <p className="text-sm text-gray-600 font-medium">No orders found</p>
-                </div>
-              )}
-            </div>
-          )}
-        </AnimatedCard>
-      )}
-
-      {/* Distributor Orders Tab */}
-      {activeTab === "distributor-orders" && (
-        <AnimatedCard delay={0.1}>
-          <h3 className="text-lg font-bold text-black mb-4">All Distributor Orders</h3>
-          <div className="space-y-3 max-h-[600px] overflow-y-auto">
-            {distributorOrders.map((order, idx) => (
-              <motion.div
-                key={order._id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-all"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xl">🚛</span>
-                      <h4 className="font-bold text-black">{order.medicineName}</h4>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        order.status === "PENDING" ? "bg-yellow-100 text-yellow-700" :
-                        order.status === "ACCEPTED" ? "bg-blue-100 text-blue-700" :
-                        order.status === "DELIVERED" ? "bg-green-100 text-green-700" :
-                        "bg-gray-100 text-gray-700"
-                      }`}>
-                        {order.status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600">Quantity: {order.quantity}</p>
-                    <p className="text-sm text-gray-600">Pharmacy: {order.pharmacyId?.slice(-8)}</p>
-                    <p className="text-sm text-gray-600">Distributor: {order.distributorId?.slice(-8)}</p>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-            {distributorOrders.length === 0 && (
-              <div className="text-center py-12">
-                <div className="text-4xl mb-3">🚛</div>
-                <p className="text-sm text-gray-600 font-medium">No distributor orders found</p>
+      {/* Edit Distributor Modal */}
+      {showEditModal && editingDistributor && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Distributor</h2>
+            <form onSubmit={updateDistributor} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Distributor Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={distributorForm.name}
+                  onChange={(e) => setDistributorForm({ ...distributorForm, name: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                />
               </div>
-            )}
-          </div>
-        </AnimatedCard>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Address <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={distributorForm.address}
+                  onChange={(e) => setDistributorForm({ ...distributorForm, address: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Phone <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={distributorForm.phone}
+                  onChange={(e) => setDistributorForm({ ...distributorForm, phone: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
+                >
+                  Update Distributor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingDistributor(null);
+                    setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Create Login Credentials Modal */}
+      {showUserModal && selectedDistributorForUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+          >
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              Create Distributor Login Credentials
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Create <strong>NEW</strong> login credentials for <strong>{selectedDistributorForUser.name}</strong> to access the distributor management panel.
+            </p>
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-xs text-blue-800">
+                <strong>Note:</strong> These are new credentials for the distributor. They are different from your admin login.
+              </p>
+            </div>
+            <form onSubmit={createDistributorLogin} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Distributor Name
+                </label>
+                <input
+                  type="text"
+                  value={userCredentials.name}
+                  onChange={(e) => setUserCredentials({ ...userCredentials, name: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  placeholder={selectedDistributorForUser.name}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="new-password"
+                  value={userCredentials.email}
+                  onChange={(e) => setUserCredentials({ ...userCredentials, email: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  placeholder="distributor@example.com"
+                />
+                <p className="text-xs text-gray-500 mt-1">This will be used to login to the distributor panel</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  value={userCredentials.password}
+                  onChange={(e) => setUserCredentials({ ...userCredentials, password: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                  placeholder="Enter new password for distributor"
+                  minLength={6}
+                />
+                <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Create a new password for distributor access</p>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
+                >
+                  Create Login
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUserModal(false);
+                    setSelectedDistributorForUser(null);
+                    setUserCredentials({ email: "", password: "", name: "" });
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
       )}
     </Layout>
   );
 }
-

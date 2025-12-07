@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
+import { PatientIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -91,16 +92,18 @@ export default function PatientPanelPage() {
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="mb-6 sm:mb-8"
+        className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent"
       >
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-black">
-              Patient Panel
-            </h2>
-            <p className="text-sm text-gray-600">
-              Manage patient records and related information
-            </p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-gray-900">
+                Patient Panel
+              </h2>
+              <p className="text-sm text-gray-600">
+                Manage patient records and related information
+              </p>
+            </div>
           </div>
         </div>
       </motion.header>
@@ -113,8 +116,8 @@ export default function PatientPanelPage() {
               <p className="text-sm text-gray-600 mb-1">Total Patients</p>
               <p className="text-2xl font-bold text-black">{patients.length}</p>
             </div>
-            <div className="p-3 bg-green-50 rounded-lg">
-              <span className="text-2xl">👤</span>
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <PatientIcon className="w-6 h-6 text-blue-900" />
             </div>
           </div>
         </AnimatedCard>
@@ -279,7 +282,11 @@ export default function PatientPanelPage() {
 
       {filteredPatients.length === 0 && !loading && (
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">👤</div>
+          <div className="flex justify-center mb-3">
+            <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
+              <PatientIcon className="w-10 h-10 text-blue-900" />
+            </div>
+          </div>
           <p className="text-sm text-gray-600 font-medium">No patients found</p>
           <p className="text-xs text-gray-500 mt-1">
             {searchQuery ? "Try adjusting your search" : "No patients match the selected filter"}

@@ -1,11 +1,152 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { motion } from "framer-motion";
+import toast from "react-hot-toast";
 import Layout from "../components/Layout";
-import StatCard from "../components/StatCard";
 import AnimatedCard from "../components/AnimatedCard";
+import { FinanceIcon, RevenueIcon, ExpenseIcon, ProfitIcon, ChartBarIcon, DownloadIcon, CalendarIcon, HospitalIcon, ClockIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+
+// Simple Line Chart Component
+const LineChart = ({ data, width = 400, height = 200, color = "#1e40af" }: any) => {
+  if (!data || data.length === 0) return null;
+  
+  const maxValue = Math.max(...data.map((d: any) => Math.max(d.revenue || 0, d.expenses || 0)));
+  const padding = 40;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+  
+  const points = data.map((d: any, i: number) => {
+    const x = padding + (i / (data.length - 1 || 1)) * chartWidth;
+    const y = padding + chartHeight - (d.revenue / maxValue) * chartHeight;
+    return { x, y, ...d };
+  });
+  
+  const pathData = points.map((p: any, i: number) => 
+    `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
+  ).join(' ');
+  
+  return (
+    <svg width={width} height={height} className="w-full">
+      <defs>
+        <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path
+        d={`${pathData} L ${points[points.length - 1].x} ${height - padding} L ${padding} ${height - padding} Z`}
+        fill="url(#lineGradient)"
+      />
+      <path
+        d={pathData}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      {points.map((p: any, i: number) => (
+        <circle key={i} cx={p.x} cy={p.y} r="4" fill={color} />
+      ))}
+    </svg>
+  );
+};
+
+// Simple Bar Chart Component
+const BarChart = ({ data, width = 400, height = 200, color = "#1e40af" }: any) => {
+  if (!data || data.length === 0) return null;
+  
+  const maxValue = Math.max(...data.map((d: any) => d.value || 0));
+  const padding = 40;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+  const barWidth = chartWidth / data.length - 10;
+  
+  return (
+    <svg width={width} height={height} className="w-full">
+      {data.map((d: any, i: number) => {
+        const barHeight = (d.value / maxValue) * chartHeight;
+        const x = padding + i * (chartWidth / data.length);
+        const y = padding + chartHeight - barHeight;
+        return (
+          <g key={i}>
+            <rect
+              x={x}
+              y={y}
+              width={barWidth}
+              height={barHeight}
+              fill={color}
+              rx="4"
+            />
+            <text
+              x={x + barWidth / 2}
+              y={height - padding + 15}
+              textAnchor="middle"
+              className="text-xs fill-gray-600"
+              fontSize="10"
+            >
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+// Pie Chart Component
+const PieChart = ({ data, size = 200 }: any) => {
+  if (!data || data.length === 0) return null;
+  
+  const total = data.reduce((sum: number, d: any) => sum + d.value, 0);
+  let currentAngle = -90;
+  const colors = ["#1e40af", "#059669", "#dc2626", "#7c3aed", "#ea580c", "#0891b2"];
+  
+  return (
+    <svg width={size} height={size} viewBox="0 0 200 200" className="w-full">
+      {data.map((d: any, i: number) => {
+        const percentage = (d.value / total) * 100;
+        const angle = (percentage / 100) * 360;
+        const startAngle = currentAngle;
+        const endAngle = currentAngle + angle;
+        
+        const x1 = 100 + 80 * Math.cos((startAngle * Math.PI) / 180);
+        const y1 = 100 + 80 * Math.sin((startAngle * Math.PI) / 180);
+        const x2 = 100 + 80 * Math.cos((endAngle * Math.PI) / 180);
+        const y2 = 100 + 80 * Math.sin((endAngle * Math.PI) / 180);
+        
+        const largeArc = angle > 180 ? 1 : 0;
+        
+        const pathData = [
+          `M 100 100`,
+          `L ${x1} ${y1}`,
+          `A 80 80 0 ${largeArc} 1 ${x2} ${y2}`,
+          `Z`
+        ].join(' ');
+        
+        currentAngle += angle;
+        
+        return (
+          <path
+            key={i}
+            d={pathData}
+            fill={colors[i % colors.length]}
+            stroke="white"
+            strokeWidth="2"
+          />
+        );
+      })}
+      <circle cx="100" cy="100" r="50" fill="white" />
+      <text x="100" y="95" textAnchor="middle" className="text-sm font-bold fill-gray-900">
+        {total.toLocaleString()}
+      </text>
+      <text x="100" y="110" textAnchor="middle" className="text-xs fill-gray-600">
+        Total
+      </text>
+    </svg>
+  );
+};
 
 export default function FinancePage() {
   const router = useRouter();
@@ -13,6 +154,8 @@ export default function FinancePage() {
   const [user, setUser] = useState<any>(null);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
     const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
@@ -23,11 +166,17 @@ export default function FinancePage() {
     }
     setUser(JSON.parse(storedUser));
     setToken(t);
+    
+    // Set default date range (last 30 days)
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    setDateFrom(thirtyDaysAgo.toISOString().split('T')[0]);
+    setDateTo(today.toISOString().split('T')[0]);
   }, [router]);
 
   const [reportType, setReportType] = useState<"summary" | "hospital" | "unit" | "time">("summary");
   const [selectedHospital, setSelectedHospital] = useState("");
-  const [selectedUnit, setSelectedUnit] = useState("");
   const [selectedPeriod, setSelectedPeriod] = useState("MONTHLY");
   const [hospitals, setHospitals] = useState<any[]>([]);
 
@@ -35,36 +184,45 @@ export default function FinancePage() {
     if (!token) return;
     const fetchData = async () => {
       try {
+        setLoading(true);
         const headers = { Authorization: `Bearer ${token}` };
+        const params = new URLSearchParams();
+        if (dateFrom) params.append('from', dateFrom);
+        if (dateTo) params.append('to', dateTo);
+        
         const [hRes, summaryRes] = await Promise.all([
           fetch(`${API_BASE}/api/master/hospitals`, { headers }),
-          fetch(`${API_BASE}/api/finance/summary`, { headers }),
+          fetch(`${API_BASE}/api/finance/summary?${params.toString()}`, { headers }),
         ]);
         setHospitals(hRes.ok ? await hRes.json() : []);
         setSummary(summaryRes.ok ? await summaryRes.json() : { total: 0, count: 0, entries: [] });
       } catch (e) {
         console.error(e);
+        toast.error("Failed to fetch finance data");
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [token]);
+  }, [token, dateFrom, dateTo]);
 
   const fetchReport = async (type: string) => {
     if (!token) return;
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
+      const params = new URLSearchParams();
+      if (dateFrom) params.append('from', dateFrom);
+      if (dateTo) params.append('to', dateTo);
+      
       let url = "";
       if (type === "hospital" && selectedHospital) {
-        url = `${API_BASE}/api/finance/reports/hospital/${selectedHospital}`;
-      } else if (type === "unit" && selectedUnit) {
-        url = `${API_BASE}/api/finance/reports/unit/${selectedUnit}?id=${selectedUnit}`;
+        url = `${API_BASE}/api/finance/reports/hospital/${selectedHospital}?${params.toString()}`;
       } else if (type === "time") {
-        url = `${API_BASE}/api/finance/reports/time?period=${selectedPeriod}`;
+        params.append('period', selectedPeriod);
+        url = `${API_BASE}/api/finance/reports/time?${params.toString()}`;
       } else {
-        url = `${API_BASE}/api/finance/summary`;
+        url = `${API_BASE}/api/finance/summary?${params.toString()}`;
       }
       const res = await fetch(url, { headers });
       const data = await res.json();
@@ -75,6 +233,7 @@ export default function FinancePage() {
       }
     } catch (e) {
       console.error(e);
+      toast.error("Failed to fetch report");
     } finally {
       setLoading(false);
     }
@@ -87,6 +246,50 @@ export default function FinancePage() {
   const expenses = entries
     .filter((e: any) => e.type?.includes("EXPENSE") || e.amount < 0)
     .reduce((sum: number, e: any) => sum + Math.abs(e.amount || 0), 0);
+  const profit = revenue - expenses;
+
+  // Prepare chart data
+  const timeSeriesData = summary?.summary?.map((s: any) => ({
+    period: s.period,
+    revenue: s.revenue || 0,
+    expenses: s.expenses || 0,
+  })) || [];
+
+  // Category breakdown
+  const categoryData = entries.reduce((acc: any, e: any) => {
+    const type = e.type || "OTHER";
+    if (!acc[type]) acc[type] = 0;
+    acc[type] += Math.abs(e.amount || 0);
+    return acc;
+  }, {});
+
+  const categoryChartData = Object.entries(categoryData)
+    .map(([label, value]: [string, any]) => ({ label: label.replace(/_/g, ' '), value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+
+  // Export to CSV
+  const exportToCSV = () => {
+    const csv = [
+      ["Type", "Amount", "Hospital", "Pharmacy", "Date"].join(","),
+      ...entries.map((e: any) => [
+        e.type || "",
+        e.amount || 0,
+        e.hospitalId?.slice(-8) || "",
+        e.pharmacyId?.slice(-8) || "",
+        e.occurredAt ? new Date(e.occurredAt).toLocaleString() : "",
+      ].join(","))
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `finance-report-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+    toast.success("Report exported successfully");
+  };
 
   if (!user) return null;
 
@@ -95,59 +298,95 @@ export default function FinancePage() {
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="mb-6 sm:mb-8"
+        className="sticky top-0 z-10 mb-6 sm:mb-8 bg-transparent"
       >
-        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 bg-gradient-to-r from-emerald-300 to-teal-300 bg-clip-text text-transparent">
-          Finance Overview
-        </h2>
-        <p className="text-xs sm:text-sm text-indigo-300/70">
-          Aggregated financial view across consultations, medicine sales, delivery, commissions and stock movements.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3 mt-4">
-          <select
-            value={reportType}
-            onChange={(e) => {
-              setReportType(e.target.value as any);
-              fetchReport(e.target.value);
-            }}
-            className="rounded-xl bg-slate-950/50 border border-indigo-800/50 px-4 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-emerald-500/50"
-          >
-            <option value="summary">Summary</option>
-            <option value="hospital">Hospital-wise</option>
-            <option value="unit">Unit-wise</option>
-            <option value="time">Time-wise</option>
-          </select>
-          {reportType === "hospital" && (
-            <select
-              value={selectedHospital}
-              onChange={(e) => {
-                setSelectedHospital(e.target.value);
-                if (e.target.value) fetchReport("hospital");
-              }}
-              className="rounded-xl bg-slate-950/50 border border-indigo-800/50 px-4 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-emerald-500/50"
+        <div className="bg-white rounded-lg shadow-sm border border-gray-300 p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-gray-900">
+                Finance Overview
+              </h2>
+              <p className="text-xs sm:text-sm text-gray-600">
+                Comprehensive financial analytics and reporting
+              </p>
+            </div>
+            <motion.button
+              onClick={exportToCSV}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="px-4 py-2 rounded-lg bg-blue-900 hover:bg-blue-800 text-white text-sm font-semibold transition-all flex items-center gap-2"
             >
-              <option value="">Select Hospital</option>
-              {hospitals.map((h) => (
-                <option key={h._id} value={h._id}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
-          )}
-          {reportType === "time" && (
+              <DownloadIcon className="w-4 h-4" />
+              <span>Export CSV</span>
+            </motion.button>
+          </div>
+
+          {/* Date Range Picker */}
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            <div className="flex items-center gap-2 flex-1">
+              <CalendarIcon className="w-4 h-4 text-gray-600" />
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-blue-900"
+              />
+              <span className="text-gray-600">to</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-blue-900"
+              />
+            </div>
+          </div>
+
+          {/* Report Type Selector */}
+          <div className="flex flex-col sm:flex-row gap-3">
             <select
-              value={selectedPeriod}
+              value={reportType}
               onChange={(e) => {
-                setSelectedPeriod(e.target.value);
-                fetchReport("time");
+                setReportType(e.target.value as any);
+                fetchReport(e.target.value);
               }}
-              className="rounded-xl bg-slate-950/50 border border-indigo-800/50 px-4 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-blue-900"
             >
-              <option value="DAILY">Daily</option>
-              <option value="MONTHLY">Monthly</option>
-              <option value="YEARLY">Yearly</option>
+              <option value="summary">Summary</option>
+              <option value="hospital">Hospital-wise</option>
+              <option value="time">Time-wise</option>
             </select>
-          )}
+            {reportType === "hospital" && (
+              <select
+                value={selectedHospital}
+                onChange={(e) => {
+                  setSelectedHospital(e.target.value);
+                  if (e.target.value) fetchReport("hospital");
+                }}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-blue-900"
+              >
+                <option value="">Select Hospital</option>
+                {hospitals.map((h) => (
+                  <option key={h._id} value={h._id}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {reportType === "time" && (
+              <select
+                value={selectedPeriod}
+                onChange={(e) => {
+                  setSelectedPeriod(e.target.value);
+                  fetchReport("time");
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-blue-900"
+              >
+                <option value="DAILY">Daily</option>
+                <option value="MONTHLY">Monthly</option>
+                <option value="YEARLY">Yearly</option>
+              </select>
+            )}
+          </div>
         </div>
       </motion.header>
 
@@ -156,94 +395,223 @@ export default function FinancePage() {
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full"
+            className="w-12 h-12 border-4 border-blue-900 border-t-transparent rounded-full"
           />
         </div>
       ) : (
         <>
+          {/* Stats Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
-            <StatCard
-              title="Total Amount"
-              value={`₹${(summary?.total || 0).toLocaleString()}`}
-              subtitle={`${summary?.count || 0} entries`}
-              gradient="bg-gradient-to-br from-emerald-500 to-teal-500"
-              shadowColor="shadow-emerald-500/50"
-              delay={0.1}
-            />
-            <StatCard
-              title="Revenue"
-              value={`₹${revenue.toLocaleString()}`}
-              subtitle="Total income"
-              gradient="bg-gradient-to-br from-blue-500 to-cyan-500"
-              shadowColor="shadow-blue-500/50"
-              delay={0.2}
-            />
-            <StatCard
-              title="Expenses"
-              value={`₹${expenses.toLocaleString()}`}
-              subtitle="Total costs"
-              gradient="bg-gradient-to-br from-red-500 to-pink-500"
-              shadowColor="shadow-red-500/50"
-              delay={0.3}
-            />
-            <StatCard
-              title="Net Profit"
-              value={`₹${(revenue - expenses).toLocaleString()}`}
-              subtitle="Revenue - Expenses"
-              gradient="bg-gradient-to-br from-purple-500 to-indigo-500"
-              shadowColor="shadow-purple-500/50"
-              delay={0.4}
-            />
+            <AnimatedCard delay={0.1}>
+              <div className="p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="p-2 bg-blue-50 rounded-lg border border-blue-200">
+                    <FinanceIcon className="w-6 h-6 text-blue-900" />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-1">Total Amount</p>
+                <p className="text-2xl font-bold text-gray-900">₹{(summary?.total || 0).toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">{summary?.count || 0} entries</p>
+              </div>
+            </AnimatedCard>
+
+            <AnimatedCard delay={0.2}>
+              <div className="p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="p-2 bg-green-50 rounded-lg border border-green-200">
+                    <RevenueIcon className="w-6 h-6 text-green-700" />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-1">Revenue</p>
+                <p className="text-2xl font-bold text-green-700">₹{revenue.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">Total income</p>
+              </div>
+            </AnimatedCard>
+
+            <AnimatedCard delay={0.3}>
+              <div className="p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="p-2 bg-red-50 rounded-lg border border-red-200">
+                    <ExpenseIcon className="w-6 h-6 text-red-700" />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-1">Expenses</p>
+                <p className="text-2xl font-bold text-red-700">₹{expenses.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-1">Total costs</p>
+              </div>
+            </AnimatedCard>
+
+            <AnimatedCard delay={0.4}>
+              <div className="p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="p-2 bg-purple-50 rounded-lg border border-purple-200">
+                    <ProfitIcon className="w-6 h-6 text-purple-700" />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 mb-1">Net Profit</p>
+                <p className={`text-2xl font-bold ${profit >= 0 ? 'text-purple-700' : 'text-red-700'}`}>
+                  ₹{profit.toLocaleString()}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">Revenue - Expenses</p>
+              </div>
+            </AnimatedCard>
           </div>
 
-          <AnimatedCard delay={0.5}>
-            <h3 className="text-lg font-semibold mb-4 text-emerald-300">Recent Entries</h3>
-            <div className="max-h-[600px] overflow-y-auto space-y-3">
-              {entries.map((e: any, idx: number) => {
-                const isPositive = e.amount > 0;
-                return (
-                  <motion.div
-                    key={e._id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="border border-indigo-900/30 rounded-xl p-4 bg-slate-950/30 hover:border-emerald-500/30 transition-all"
-                  >
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
-                          <p className="font-semibold text-sm text-indigo-100 break-words">{e.type || "Transaction"}</p>
-                          <span className={`text-xs px-2 py-1 rounded-lg font-medium ${
-                            isPositive
-                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                              : "bg-red-500/20 text-red-300 border border-red-500/30"
-                          }`}>
-                            {isPositive ? "Income" : "Expense"}
-                          </span>
+          {/* Charts Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Time Series Chart */}
+            {reportType === "time" && timeSeriesData.length > 0 && (
+              <AnimatedCard delay={0.5}>
+                <div className="p-4 sm:p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ChartBarIcon className="w-5 h-5 text-blue-900" />
+                    <h3 className="text-lg font-bold text-gray-900">Revenue & Expenses Trend</h3>
+                  </div>
+                  <div className="h-64">
+                    <LineChart data={timeSeriesData} width={600} height={256} color="#1e40af" />
+                  </div>
+                  <div className="flex gap-4 mt-4 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-blue-900 rounded"></div>
+                      <span className="text-gray-600">Revenue</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-red-600 rounded"></div>
+                      <span className="text-gray-600">Expenses</span>
+                    </div>
+                  </div>
+                </div>
+              </AnimatedCard>
+            )}
+
+            {/* Category Breakdown Pie Chart */}
+            {categoryChartData.length > 0 && (
+              <AnimatedCard delay={0.6}>
+                <div className="p-4 sm:p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ChartBarIcon className="w-5 h-5 text-blue-900" />
+                    <h3 className="text-lg font-bold text-gray-900">Category Breakdown</h3>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center gap-6">
+                    <div className="flex-shrink-0">
+                      <PieChart data={categoryChartData} size={200} />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      {categoryChartData.map((item: any, idx: number) => {
+                        const colors = ["#1e40af", "#059669", "#dc2626", "#7c3aed", "#ea580c", "#0891b2"];
+                        const percentage = ((item.value / categoryChartData.reduce((sum: number, d: any) => sum + d.value, 0)) * 100).toFixed(1);
+                        return (
+                          <div key={idx} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded" style={{ backgroundColor: colors[idx % colors.length] }}></div>
+                              <span className="text-sm text-gray-700">{item.label}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-semibold text-gray-900">₹{item.value.toLocaleString()}</span>
+                              <span className="text-xs text-gray-500 ml-2">({percentage}%)</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </AnimatedCard>
+            )}
+
+            {/* Bar Chart for Time Periods */}
+            {reportType === "time" && timeSeriesData.length > 0 && (
+              <AnimatedCard delay={0.7}>
+                <div className="p-4 sm:p-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <ChartBarIcon className="w-5 h-5 text-blue-900" />
+                    <h3 className="text-lg font-bold text-gray-900">Revenue by Period</h3>
+                  </div>
+                  <div className="h-64">
+                    <BarChart 
+                      data={timeSeriesData.map((d: any) => ({ label: d.period, value: d.revenue }))} 
+                      width={600} 
+                      height={256} 
+                      color="#1e40af" 
+                    />
+                  </div>
+                </div>
+              </AnimatedCard>
+            )}
+          </div>
+
+          {/* Recent Entries */}
+          <AnimatedCard delay={0.8}>
+            <div className="p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Recent Transactions</h3>
+                <span className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-md border border-blue-200">
+                  {entries.length} {entries.length === 1 ? "entry" : "entries"}
+                </span>
+              </div>
+              <div className="max-h-[600px] overflow-y-auto space-y-3">
+                {entries.map((e: any, idx: number) => {
+                  const isPositive = e.amount > 0;
+                  return (
+                    <motion.div
+                      key={e._id || idx}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className="border border-gray-300 rounded-lg p-4 bg-white hover:border-blue-900 hover:shadow-md transition-all"
+                    >
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
+                            <p className="font-semibold text-sm text-gray-900 break-words">{e.type || "Transaction"}</p>
+                            <span className={`text-xs px-2 py-1 rounded-md font-medium w-fit ${
+                              isPositive
+                                ? "bg-green-50 text-green-700 border border-green-200"
+                                : "bg-red-50 text-red-700 border border-red-200"
+                            }`}>
+                              {isPositive ? "Income" : "Expense"}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+                            {e.hospitalId && (
+                              <span className="flex items-center gap-1">
+                                <HospitalIcon className="w-3 h-3" />
+                                {e.hospitalId.slice(-8)}
+                              </span>
+                            )}
+                            {e.occurredAt && (
+                              <span className="flex items-center gap-1">
+                                <ClockIcon className="w-3 h-3" />
+                                {new Date(e.occurredAt).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-xs text-indigo-400/60 break-words">
-                          Hospital: {e.hospitalId?.slice(-8) || "-"} · Pharmacy: {e.pharmacyId?.slice(-8) || "-"}
-                        </p>
-                        {e.occurredAt && (
-                          <p className="text-xs text-indigo-400/50 mt-1">
-                            {new Date(e.occurredAt).toLocaleString()}
+                        <div className="text-right sm:ml-4 flex-shrink-0 w-full sm:w-auto">
+                          <p className={`text-lg font-bold ${isPositive ? "text-green-700" : "text-red-700"}`}>
+                            {isPositive ? "+" : "-"}₹{Math.abs(e.amount || 0).toLocaleString()}
                           </p>
-                        )}
+                        </div>
                       </div>
-                      <div className="text-right sm:ml-4 flex-shrink-0 w-full sm:w-auto">
-                        <p className={`text-lg font-bold ${isPositive ? "text-emerald-300" : "text-red-300"}`}>
-                          {isPositive ? "+" : "-"}₹{Math.abs(e.amount || 0).toLocaleString()}
-                        </p>
+                    </motion.div>
+                  );
+                })}
+                {entries.length === 0 && (
+                  <div className="text-center py-12">
+                    <div className="flex justify-center mb-4">
+                      <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
+                        <FinanceIcon className="w-10 h-10 text-blue-900" />
                       </div>
                     </div>
-                  </motion.div>
-                );
-              })}
-              {entries.length === 0 && (
-                <p className="text-sm text-indigo-400/60 text-center py-8">
-                  No finance entries yet. They will be created by your business flows (consultations, orders, stock, etc.).
-                </p>
-              )}
+                    <p className="text-sm text-gray-700 font-medium mb-2">
+                      No finance entries yet
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Transactions will appear here as they occur
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </AnimatedCard>
         </>
