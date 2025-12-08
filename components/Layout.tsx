@@ -18,6 +18,7 @@ import {
   LogoutIcon,
   MenuIcon,
   CloseIcon,
+  ClockIcon,
 } from "./Icons";
 
 interface User {
@@ -39,6 +40,7 @@ const navItems = [
   { path: "/pharmacy-management", label: "Pharmacy Management", icon: PharmacyIcon },
   { path: "/distributor-management", label: "Distributor Management", icon: DistributorIcon },
   { path: "/doctor-management", label: "Doctor Management", icon: DoctorIcon },
+  { path: "/schedules", label: "Doctor Schedules", icon: ClockIcon },
   { path: "/patient-panel", label: "Patient Panel", icon: PatientIcon },
   { path: "/orders", label: "Order Management", icon: OrdersIcon },
   { path: "/reports", label: "Prescription Reports", icon: ReportsIcon },

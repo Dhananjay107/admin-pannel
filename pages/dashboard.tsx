@@ -94,7 +94,7 @@ export default function DashboardPage() {
           appointmentsRes.ok ? appointmentsRes.json() : [],
           distributorOrdersRes.ok ? distributorOrdersRes.json() : [],
           patientOrdersRes.ok ? patientOrdersRes.json() : [],
-          financeRes.ok ? financeRes.json() : { total: 0, count: 0 },
+          financeRes.ok ? financeRes.json() : { total: 0, revenue: 0, expenses: 0, netProfit: 0, count: 0 },
           hospitalsRes.ok ? hospitalsRes.json() : [],
           pharmaciesRes.ok ? pharmaciesRes.json() : [],
           distributorsRes.ok ? distributorsRes.json() : [],
@@ -136,7 +136,7 @@ export default function DashboardPage() {
           patientOrders: patientOrdersArray.length,
           pendingOrders,
           activeOrders,
-          financeTotal: finance.total ?? 0,
+          financeTotal: finance.revenue ?? finance.total ?? 0,
           hospitalsCount: Array.isArray(hospitals) ? hospitals.length : 0,
           pharmaciesCount: Array.isArray(pharmacies) ? pharmacies.length : 0,
           distributorsCount: Array.isArray(distributors) ? distributors.length : 0,
@@ -229,12 +229,25 @@ export default function DashboardPage() {
         fetchActivities();
       };
 
+      const handleOrderDelivered = () => {
+        // Refresh stats when order is delivered to update revenue
+        fetchStats();
+        fetchActivities();
+      };
+
+      const handleFinanceUpdated = () => {
+        // Refresh stats when finance entries are updated (payment received)
+        fetchStats();
+      };
+
       onSocketEvent("appointment:created", handleAppointmentCreated);
       onSocketEvent("prescription:created", handlePrescriptionCreated);
       onSocketEvent("prescription:formatted", handlePrescriptionCreated);
       onSocketEvent("prescription:finalized", handlePrescriptionCreated);
       onSocketEvent("order:created", handleOrderCreated);
       onSocketEvent("order:statusUpdated", handleOrderStatusUpdated);
+      onSocketEvent("order:delivered", handleOrderDelivered);
+      onSocketEvent("finance:updated", handleFinanceUpdated);
 
       return () => {
         offSocketEvent("appointment:created", handleAppointmentCreated);
@@ -243,6 +256,8 @@ export default function DashboardPage() {
         offSocketEvent("prescription:finalized", handlePrescriptionCreated);
         offSocketEvent("order:created", handleOrderCreated);
         offSocketEvent("order:statusUpdated", handleOrderStatusUpdated);
+        offSocketEvent("order:delivered", handleOrderDelivered);
+        offSocketEvent("finance:updated", handleFinanceUpdated);
       };
     }
 
