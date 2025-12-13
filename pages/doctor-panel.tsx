@@ -11,7 +11,7 @@ export default function DoctorPanelPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"management" | "records" | "prescriptions" | "documents" | "pricing">("management");
+  const [activeTab, setActiveTab] = useState<"management" | "records" | "prescriptions" | "reports" | "documents" | "pricing">("management");
   
   // Doctor Management State
   const [showAddDoctorModal, setShowAddDoctorModal] = useState(false);
@@ -40,6 +40,10 @@ export default function DoctorPanelPage() {
   
   // Documents State
   const [documents, setDocuments] = useState<any[]>([]);
+  
+  // Report Requests State
+  const [reportRequests, setReportRequests] = useState<any[]>([]);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
   
   // Pricing State
   const [pricing, setPricing] = useState<any[]>([]);
@@ -77,6 +81,7 @@ export default function DoctorPanelPage() {
     fetchDocuments();
     fetchPricing();
     fetchHospitals();
+    fetchReportRequests();
   }, [token]);
 
   const fetchHospitals = async () => {
@@ -264,6 +269,18 @@ export default function DoctorPanelPage() {
     }
   };
 
+  const fetchReportRequests = async () => {
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await fetch(`${API_BASE}/api/report-requests`, { headers });
+      const data = res.ok ? await res.json() : [];
+      setReportRequests(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("Failed to fetch report requests:", e);
+      setReportRequests([]);
+    }
+  };
+
   const createPricing = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -356,6 +373,7 @@ export default function DoctorPanelPage() {
     { id: "management", label: "Doctor Management", icon: "👨‍⚕️" },
     { id: "records", label: "Doctor Records", icon: "📋" },
     { id: "prescriptions", label: "Prescription Reports", icon: "📄" },
+    { id: "reports", label: "Patient Reports", icon: "📋" },
     { id: "documents", label: "Document Panel", icon: "📁" },
     { id: "pricing", label: "Service Pricing", icon: "💵" },
   ];
@@ -877,6 +895,233 @@ export default function DoctorPanelPage() {
                 <div className="p-6 border-t border-blue-200 bg-blue-50">
                   <motion.button
                     onClick={() => setSelectedPrescription(null)}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full px-6 py-3 bg-white border-2 border-black text-black rounded-lg font-semibold transition-colors hover:bg-black hover:text-white"
+                  >
+                    Close
+                  </motion.button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Patient Reports Tab */}
+      {activeTab === "reports" && (
+        <>
+          <AnimatedCard delay={0.1}>
+            <h3 className="text-lg font-bold text-black mb-4">Patient Reports</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {reportRequests.map((report, idx) => (
+                <motion.div
+                  key={report._id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  whileHover={{ scale: 1.02, y: -4 }}
+                  onClick={() => setSelectedReport(report)}
+                  className="medical-card cursor-pointer border-l-4 border-l-purple-600 hover:shadow-xl transition-all"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">📋</span>
+                      <h4 className="text-lg font-bold text-black">
+                        {report.reportType}
+                      </h4>
+                    </div>
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        report.status === "UPLOADED"
+                          ? "bg-green-100 text-green-700"
+                          : report.status === "REVIEWED"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-yellow-100 text-yellow-700"
+                      }`}
+                    >
+                      {report.status}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-black">👨‍⚕️</span>
+                      <span className="text-sm font-semibold text-black truncate">
+                        {getDoctorNameForPrescription(report.doctorId)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-black">👤</span>
+                      <span className="text-sm font-semibold text-black truncate">
+                        {getPatientNameForPrescription(report.patientId)}
+                      </span>
+                    </div>
+                    {report.description && (
+                      <p className="text-xs text-black line-clamp-2">{report.description}</p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-black">📅</span>
+                      <span className="text-xs text-black">
+                        {new Date(report.requestedAt).toLocaleString('en-IN', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {report.status === "UPLOADED" && (
+                    <div className="pt-3 border-t border-purple-200">
+                      <p className="text-xs text-purple-600 font-medium">Report uploaded - Click to view →</p>
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+              {reportRequests.length === 0 && (
+                <div className="col-span-full text-center py-12">
+                  <div className="text-4xl mb-3">📋</div>
+                  <p className="text-sm text-black font-medium">No report requests found</p>
+                </div>
+              )}
+            </div>
+          </AnimatedCard>
+
+          {/* Report Detail Modal */}
+          {selectedReport && (
+            <div
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={() => setSelectedReport(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+              >
+                <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-purple-50">
+                  <div>
+                    <h3 className="text-xl font-bold text-black mb-1">
+                      {selectedReport.reportType}
+                    </h3>
+                    <p className="text-sm text-black">
+                      {getDoctorNameForPrescription(selectedReport.doctorId)} → {getPatientNameForPrescription(selectedReport.patientId)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedReport(null)}
+                    className="text-black hover:text-purple-600 text-2xl font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {/* Basic Information */}
+                  <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                    <h4 className="text-sm font-bold text-black mb-3">Report Information</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-xs font-medium text-black">👨‍⚕️ Doctor:</span>
+                        <p className="text-sm font-semibold text-black mt-1">
+                          {getDoctorNameForPrescription(selectedReport.doctorId)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-black">👤 Patient:</span>
+                        <p className="text-sm font-semibold text-black mt-1">
+                          {getPatientNameForPrescription(selectedReport.patientId)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-black">📋 Type:</span>
+                        <p className="text-sm font-semibold text-black mt-1">
+                          {selectedReport.reportType}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-black">📊 Status:</span>
+                        <p className="text-sm font-semibold text-black mt-1">
+                          {selectedReport.status}
+                        </p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <span className="text-xs font-medium text-black">📅 Requested:</span>
+                        <p className="text-sm text-black mt-1">
+                          {new Date(selectedReport.requestedAt).toLocaleString('en-IN', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                      {selectedReport.description && (
+                        <div className="sm:col-span-2">
+                          <span className="text-xs font-medium text-black">📝 Description:</span>
+                          <p className="text-sm text-black mt-1 bg-white rounded p-2 border border-purple-200">
+                            {selectedReport.description}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Uploaded Report */}
+                  {selectedReport.status === "UPLOADED" && selectedReport.fileUrl && (
+                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                      <h4 className="text-sm font-bold text-black mb-3">Uploaded Report</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <span className="text-xs font-medium text-black">📄 File Name:</span>
+                          <p className="text-sm font-semibold text-black mt-1">
+                            {selectedReport.fileName || "Report File"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-black">📅 Uploaded:</span>
+                          <p className="text-sm text-black mt-1">
+                            {selectedReport.uploadedAt
+                              ? new Date(selectedReport.uploadedAt).toLocaleString('en-IN', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              : "N/A"}
+                          </p>
+                        </div>
+                        <a
+                          href={`${API_BASE}${selectedReport.fileUrl}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block w-full rounded-lg bg-green-600 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-green-700 transition-all"
+                        >
+                          📄 View Report
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedReport.status === "PENDING" && (
+                    <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
+                      <p className="text-sm text-black">
+                        ⏳ Waiting for patient to upload the report...
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Close Button */}
+                <div className="p-6 border-t border-purple-200 bg-purple-50">
+                  <motion.button
+                    onClick={() => setSelectedReport(null)}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     className="w-full px-6 py-3 bg-white border-2 border-black text-black rounded-lg font-semibold transition-colors hover:bg-black hover:text-white"

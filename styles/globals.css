@@ -94,3 +94,32 @@ aside nav::-webkit-scrollbar-thumb:hover {
 .medical-card > div[class*="overflow-y-auto"]::-webkit-scrollbar-thumb:hover {
   background: #94A3B8;
 }
+
+/* Modal card scrollbars - always visible */
+/* Force scrollbars to be visible for scrollable modal content */
+.overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: #94A3B8 #F1F5F9;
+}
+
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  -webkit-appearance: none;
+  display: block;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #F1F5F9;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+  border-radius: 4px;
+  border: 1px solid #F1F5F9;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #64748B;
+}

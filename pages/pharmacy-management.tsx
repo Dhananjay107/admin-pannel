@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
-import { PharmacyIcon, PlusIcon, EditIcon, DeleteIcon } from "../components/Icons";
+import { PharmacyIcon, PlusIcon, EditIcon, DeleteIcon, EyeIcon, EyeOffIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -15,12 +15,12 @@ export default function PharmacyManagementPage() {
   
   // Pharmacy Management State
   const [pharmacies, setPharmacies] = useState<any[]>([]);
+  const [distributors, setDistributors] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showUserModal, setShowUserModal] = useState(false);
   const [editingPharmacy, setEditingPharmacy] = useState<any>(null);
-  const [selectedPharmacyForUser, setSelectedPharmacyForUser] = useState<any>(null);
-  const [userCredentials, setUserCredentials] = useState({ email: "", password: "", name: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   
   // Form states
   const [pharmacyForm, setPharmacyForm] = useState({ 
@@ -28,7 +28,8 @@ export default function PharmacyManagementPage() {
     address: "", 
     phone: "",
     email: "",
-    password: ""
+    password: "",
+    distributorId: ""
   });
   
   const [loading, setLoading] = useState(true);
@@ -47,7 +48,18 @@ export default function PharmacyManagementPage() {
   useEffect(() => {
     if (!token) return;
     fetchPharmacies();
+    fetchDistributors();
   }, [token]);
+
+  const fetchDistributors = async () => {
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await fetch(`${API_BASE}/api/master/distributors`, { headers });
+      setDistributors(res.ok ? await res.json() : []);
+    } catch (e) {
+      console.error("Failed to fetch distributors:", e);
+    }
+  };
 
   const fetchPharmacies = async () => {
     try {
@@ -76,6 +88,7 @@ export default function PharmacyManagementPage() {
           name: pharmacyForm.name,
           address: pharmacyForm.address,
           phone: pharmacyForm.phone,
+          distributorId: pharmacyForm.distributorId || undefined, // Include distributorId if provided
         }),
       });
       
@@ -115,7 +128,7 @@ export default function PharmacyManagementPage() {
       }
 
       setPharmacies((prev) => [createdPharmacy, ...prev]);
-      setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "" });
+      setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "", distributorId: "" });
       setShowAddModal(false);
     } catch (e: any) {
       toast.error(e.message || "Error creating pharmacy");
@@ -126,28 +139,64 @@ export default function PharmacyManagementPage() {
     e.preventDefault();
     if (!token || !editingPharmacy) return;
     try {
-      const res = await fetch(`${API_BASE}/api/master/pharmacies/${editingPharmacy._id}`, {
+      // Update pharmacy details
+      const pharmacyRes = await fetch(`${API_BASE}/api/master/pharmacies/${editingPharmacy._id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(pharmacyForm),
+        body: JSON.stringify({
+          name: pharmacyForm.name,
+          address: pharmacyForm.address,
+          phone: pharmacyForm.phone,
+          distributorId: pharmacyForm.distributorId || undefined, // Include distributorId if provided
+        }),
       });
       
-      if (res.ok) {
-        const updated = await res.json();
-        setPharmacies((prev) => prev.map((p) => (p._id === editingPharmacy._id ? updated : p)));
-      setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "" });
+      if (!pharmacyRes.ok) {
+        const error = await pharmacyRes.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to update pharmacy");
+      }
+
+      // Update login credentials if email and password are provided
+      if (pharmacyForm.email && pharmacyForm.password) {
+        const userRes = await fetch(`${API_BASE}/api/users/signup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: pharmacyForm.name,
+            email: pharmacyForm.email,
+            password: pharmacyForm.password,
+            role: "PHARMACY_STAFF",
+            pharmacyId: editingPharmacy._id,
+          }),
+        });
+
+        if (!userRes.ok) {
+          const error = await userRes.json().catch(() => ({}));
+          toast("Pharmacy updated but failed to update login credentials: " + (error.message || "Unknown error"), {
+            icon: "⚠️",
+            duration: 4000,
+          });
+        } else {
+          toast.success("Pharmacy and login credentials updated successfully!");
+        }
+      } else {
+        toast.success("Pharmacy updated successfully!");
+      }
+
+      const updated = await pharmacyRes.json();
+      setPharmacies((prev) => prev.map((p) => (p._id === editingPharmacy._id ? updated : p)));
+      setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "", distributorId: "" });
       setShowEditModal(false);
       setEditingPharmacy(null);
-      toast.success("Pharmacy updated successfully!");
-      } else {
-        const error = await res.json().catch(() => ({}));
-        toast.error(error.message || "Failed to update pharmacy");
-      }
-    } catch (e) {
-      toast.error("Error updating pharmacy");
+      setShowEditPassword(false);
+    } catch (e: any) {
+      toast.error(e.message || "Error updating pharmacy");
     }
   };
 
@@ -170,50 +219,43 @@ export default function PharmacyManagementPage() {
     }
   };
 
-  const openEditModal = (pharmacy: any) => {
+  const openEditModal = async (pharmacy: any) => {
     setEditingPharmacy(pharmacy);
-    setPharmacyForm({ name: pharmacy.name, address: pharmacy.address, phone: pharmacy.phone || "" });
+    setPharmacyForm({ 
+      name: pharmacy.name || "", 
+      address: pharmacy.address || "", 
+      phone: pharmacy.phone || "",
+      email: "",
+      password: "",
+      distributorId: pharmacy.distributorId || ""
+    });
     setShowEditModal(true);
-  };
+    setShowEditPassword(false);
 
-  const openUserModal = (pharmacy: any) => {
-    setSelectedPharmacyForUser(pharmacy);
-    setUserCredentials({ email: "", password: "", name: pharmacy.name });
-    setShowUserModal(true);
-  };
-
-  const createPharmacyLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !selectedPharmacyForUser) return;
-    
-    try {
-      // Create login account for the pharmacy (not staff)
-      const userRes = await fetch(`${API_BASE}/api/users/signup`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: userCredentials.name || selectedPharmacyForUser.name,
-          email: userCredentials.email,
-          password: userCredentials.password,
-          role: "PHARMACY_STAFF",
-          pharmacyId: selectedPharmacyForUser._id,
-        }),
-      });
-
-      if (!userRes.ok) {
-        const error = await userRes.json().catch(() => ({}));
-        throw new Error(error.message || "Failed to create login credentials");
+    // Fetch existing user email for this pharmacy
+    if (token) {
+      try {
+        const userRes = await fetch(`${API_BASE}/api/users?pharmacyId=${pharmacy._id}&role=PHARMACY_STAFF`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (userRes.ok) {
+          const users = await userRes.json();
+          // Handle both array and object responses
+          const userList = Array.isArray(users) ? users : (users.users || []);
+          if (userList.length > 0) {
+            const pharmacyUser = userList[0];
+            if (pharmacyUser && pharmacyUser.email) {
+              setPharmacyForm(prev => ({
+                ...prev,
+                email: pharmacyUser.email
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        // Silently fail - email field will just be empty
+        console.log("Could not fetch pharmacy user email:", e);
       }
-
-      toast.success("Pharmacy login credentials created successfully! Use these credentials to access the pharmacy panel.");
-      setShowUserModal(false);
-      setUserCredentials({ email: "", password: "", name: "" });
-      setSelectedPharmacyForUser(null);
-    } catch (e: any) {
-      toast.error(e.message || "Error creating pharmacy login credentials");
     }
   };
 
@@ -238,7 +280,8 @@ export default function PharmacyManagementPage() {
             </div>
             <motion.button
               onClick={() => {
-                setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "" });
+                setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "", distributorId: "" });
+                setShowPassword(false);
                 setShowAddModal(true);
               }}
               whileHover={{ scale: 1.02 }}
@@ -285,6 +328,14 @@ export default function PharmacyManagementPage() {
                       <p className="text-sm text-gray-600">{p.phone}</p>
                     </div>
                   )}
+                  {p.distributorId && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400">🚚</span>
+                      <p className="text-sm text-gray-600">
+                        Linked to: {distributors.find(d => d._id === p.distributorId)?.name || `Distributor ${p.distributorId.slice(-8)}`}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-2 pt-4 border-t border-gray-100">
@@ -296,14 +347,6 @@ export default function PharmacyManagementPage() {
                   >
                     <EditIcon className="w-4 h-4" />
                     <span>Edit</span>
-                  </motion.button>
-                  <motion.button
-                    onClick={() => openUserModal(p)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="flex-1 px-3 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 text-sm font-medium transition-all"
-                  >
-                    Create Login
                   </motion.button>
                   <motion.button
                     onClick={() => deletePharmacy(p._id)}
@@ -334,7 +377,7 @@ export default function PharmacyManagementPage() {
 
       {/* Add Pharmacy Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -382,6 +425,25 @@ export default function PharmacyManagementPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Distributor
+                </label>
+                <select
+                  value={pharmacyForm.distributorId}
+                  onChange={(e) => setPharmacyForm({ ...pharmacyForm, distributorId: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                >
+                  <option value="">Select a distributor (optional)</option>
+                  {distributors.map((distributor) => (
+                    <option key={distributor._id} value={distributor._id}>
+                      {distributor.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Link this pharmacy to a distributor</p>
+              </div>
+
               <div className="pt-4 border-t border-gray-300">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">Login Credentials</h3>
                 <div className="space-y-4">
@@ -404,16 +466,29 @@ export default function PharmacyManagementPage() {
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
                       Password <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      value={pharmacyForm.password}
-                      onChange={(e) => setPharmacyForm({ ...pharmacyForm, password: e.target.value })}
-                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                      placeholder="Enter new password for pharmacy"
-                      minLength={6}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        value={pharmacyForm.password}
+                        onChange={(e) => setPharmacyForm({ ...pharmacyForm, password: e.target.value })}
+                        className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                        placeholder="Enter new password for pharmacy"
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                      >
+                        {showPassword ? (
+                          <EyeOffIcon className="w-5 h-5" />
+                        ) : (
+                          <EyeIcon className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Create a new password for pharmacy access</p>
                   </div>
                 </div>
@@ -430,7 +505,8 @@ export default function PharmacyManagementPage() {
                   type="button"
                   onClick={() => {
                     setShowAddModal(false);
-                    setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "" });
+                    setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "", distributorId: "" });
+                    setShowPassword(false);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
                 >
@@ -444,7 +520,7 @@ export default function PharmacyManagementPage() {
 
       {/* Edit Pharmacy Modal */}
       {showEditModal && editingPharmacy && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -488,6 +564,80 @@ export default function PharmacyManagementPage() {
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Distributor {editingPharmacy && editingPharmacy.distributorId && (
+                    <span className="text-xs font-normal text-gray-500">
+                      (Current: {distributors.find(d => d._id === editingPharmacy.distributorId)?.name || editingPharmacy.distributorId.slice(-8)})
+                    </span>
+                  )}
+                </label>
+                <select
+                  value={pharmacyForm.distributorId}
+                  onChange={(e) => setPharmacyForm({ ...pharmacyForm, distributorId: e.target.value })}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                >
+                  <option value="">Select a distributor (optional)</option>
+                  {distributors.map((distributor) => (
+                    <option key={distributor._id} value={distributor._id}>
+                      {distributor.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Link this pharmacy to a distributor. This will show in the distributor portal.
+                </p>
+              </div>
+
+              <div className="pt-4 border-t border-gray-300">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Login Credentials</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      autoComplete="new-password"
+                      value={pharmacyForm.email}
+                      onChange={(e) => setPharmacyForm({ ...pharmacyForm, email: e.target.value })}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                      placeholder="pharmacy@example.com"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Leave empty to keep existing credentials</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showEditPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={pharmacyForm.password || ""}
+                        onChange={(e) => setPharmacyForm({ ...pharmacyForm, password: e.target.value })}
+                        className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                        placeholder="Enter new password (leave empty to keep existing)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditPassword(!showEditPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none z-10"
+                        tabIndex={-1}
+                      >
+                        {showEditPassword ? (
+                          <EyeOffIcon className="w-5 h-5" />
+                        ) : (
+                          <EyeIcon className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Leave empty to keep existing password</p>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
@@ -500,7 +650,8 @@ export default function PharmacyManagementPage() {
                   onClick={() => {
                     setShowEditModal(false);
                     setEditingPharmacy(null);
-                    setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "" });
+                    setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "", distributorId: "" });
+                    setShowEditPassword(false);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
                 >
@@ -512,92 +663,6 @@ export default function PharmacyManagementPage() {
         </div>
       )}
 
-      {/* Create Login Credentials Modal */}
-      {showUserModal && selectedPharmacyForUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
-          >
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Create Pharmacy Login Credentials
-            </h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Create <strong>NEW</strong> login credentials for <strong>{selectedPharmacyForUser.name}</strong> to access the pharmacy management panel.
-            </p>
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-xs text-blue-800">
-                <strong>Note:</strong> These are new credentials for the pharmacy. They are different from your admin login.
-              </p>
-            </div>
-            <form onSubmit={createPharmacyLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Pharmacy Name
-                </label>
-                <input
-                  type="text"
-                  value={userCredentials.name}
-                  onChange={(e) => setUserCredentials({ ...userCredentials, name: e.target.value })}
-                  className="w-full px-4 py-2 rounded-lg border-2 border-gray-200 focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
-                  placeholder={selectedPharmacyForUser.name}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  autoComplete="new-password"
-                  value={userCredentials.email}
-                  onChange={(e) => setUserCredentials({ ...userCredentials, email: e.target.value })}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                  placeholder="pharmacy@example.com"
-                />
-                <p className="text-xs text-gray-500 mt-1">This will be used to login to the pharmacy panel</p>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Password <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={userCredentials.password}
-                  onChange={(e) => setUserCredentials({ ...userCredentials, password: e.target.value })}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                  placeholder="Enter new password for pharmacy"
-                  minLength={6}
-                />
-                <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Create a new password for pharmacy access</p>
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
-                >
-                  Create Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUserModal(false);
-                    setSelectedPharmacyForUser(null);
-                    setUserCredentials({ email: "", password: "", name: "" });
-                  }}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
     </Layout>
   );
 }

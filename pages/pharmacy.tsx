@@ -471,7 +471,7 @@ export default function PharmacyPanelPage() {
       {/* Delivery Assignment Modal */}
       {selectedOrderForDelivery && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 sm:p-6"
+          className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4 sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-labelledby="delivery-assignment-title"

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
-import { DistributorIcon, PlusIcon, EditIcon, DeleteIcon } from "../components/Icons";
+import { DistributorIcon, PlusIcon, EditIcon, DeleteIcon, EyeIcon, EyeOffIcon } from "../components/Icons";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -17,9 +17,9 @@ export default function DistributorManagementPage() {
   const [distributors, setDistributors] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showUserModal, setShowUserModal] = useState(false);
   const [editingDistributor, setEditingDistributor] = useState<any>(null);
-  const [selectedDistributorForUser, setSelectedDistributorForUser] = useState<any>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   
   // Form states
   const [distributorForm, setDistributorForm] = useState({ 
@@ -29,7 +29,6 @@ export default function DistributorManagementPage() {
     email: "",
     password: ""
   });
-  const [userCredentials, setUserCredentials] = useState({ email: "", password: "", name: "" });
   
   const [loading, setLoading] = useState(true);
 
@@ -126,7 +125,8 @@ export default function DistributorManagementPage() {
     e.preventDefault();
     if (!token || !editingDistributor) return;
     try {
-      const res = await fetch(`${API_BASE}/api/master/distributors/${editingDistributor._id}`, {
+      // Update distributor details
+      const distributorRes = await fetch(`${API_BASE}/api/master/distributors/${editingDistributor._id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -139,19 +139,49 @@ export default function DistributorManagementPage() {
         }),
       });
       
-      if (res.ok) {
-        const updated = await res.json();
-        setDistributors((prev) => prev.map((d) => (d._id === editingDistributor._id ? updated : d)));
-        setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
-        setShowEditModal(false);
-        setEditingDistributor(null);
-        toast.success("Distributor updated successfully!");
-      } else {
-        const error = await res.json().catch(() => ({}));
-        toast.error(error.message || "Failed to update distributor");
+      if (!distributorRes.ok) {
+        const error = await distributorRes.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to update distributor");
       }
-    } catch (e) {
-      toast.error("Error updating distributor");
+
+      // Update login credentials if email and password are provided
+      if (distributorForm.email && distributorForm.password) {
+        const userRes = await fetch(`${API_BASE}/api/users/signup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: distributorForm.name,
+            email: distributorForm.email,
+            password: distributorForm.password,
+            role: "DISTRIBUTOR",
+            distributorId: editingDistributor._id,
+          }),
+        });
+
+        if (!userRes.ok) {
+          const error = await userRes.json().catch(() => ({}));
+          toast("Distributor updated but failed to update login credentials: " + (error.message || "Unknown error"), {
+            icon: "⚠️",
+            duration: 4000,
+          });
+        } else {
+          toast.success("Distributor and login credentials updated successfully!");
+        }
+      } else {
+        toast.success("Distributor updated successfully!");
+      }
+
+      const updated = await distributorRes.json();
+      setDistributors((prev) => prev.map((d) => (d._id === editingDistributor._id ? updated : d)));
+      setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+      setShowEditModal(false);
+      setEditingDistributor(null);
+      setShowEditPassword(false);
+    } catch (e: any) {
+      toast.error(e.message || "Error updating distributor");
     }
   };
 
@@ -174,50 +204,42 @@ export default function DistributorManagementPage() {
     }
   };
 
-  const openEditModal = (distributor: any) => {
+  const openEditModal = async (distributor: any) => {
     setEditingDistributor(distributor);
-    setDistributorForm({ name: distributor.name, address: distributor.address, phone: distributor.phone || "", email: "", password: "" });
+    setDistributorForm({ 
+      name: distributor.name || "", 
+      address: distributor.address || "", 
+      phone: distributor.phone || "",
+      email: "",
+      password: ""
+    });
     setShowEditModal(true);
-  };
+    setShowEditPassword(false);
 
-  const openUserModal = (distributor: any) => {
-    setSelectedDistributorForUser(distributor);
-    setUserCredentials({ email: "", password: "", name: distributor.name });
-    setShowUserModal(true);
-  };
-
-  const createDistributorLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token || !selectedDistributorForUser) return;
-    
-    try {
-      // Create login account for the distributor (not staff)
-      const userRes = await fetch(`${API_BASE}/api/users/signup`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: userCredentials.name || selectedDistributorForUser.name,
-          email: userCredentials.email,
-          password: userCredentials.password,
-          role: "DISTRIBUTOR",
-          distributorId: selectedDistributorForUser._id,
-        }),
-      });
-
-      if (!userRes.ok) {
-        const error = await userRes.json().catch(() => ({}));
-        throw new Error(error.message || "Failed to create login credentials");
+    // Fetch existing user email for this distributor
+    if (token) {
+      try {
+        const userRes = await fetch(`${API_BASE}/api/users?distributorId=${distributor._id}&role=DISTRIBUTOR`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (userRes.ok) {
+          const users = await userRes.json();
+          // Handle both array and object responses
+          const userList = Array.isArray(users) ? users : (users.users || []);
+          if (userList.length > 0) {
+            const distributorUser = userList[0];
+            if (distributorUser && distributorUser.email) {
+              setDistributorForm(prev => ({
+                ...prev,
+                email: distributorUser.email
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        // Silently fail - email field will just be empty
+        console.log("Could not fetch distributor user email:", e);
       }
-
-      toast.success("Distributor login credentials created successfully! Use these credentials to access the distributor panel.");
-      setShowUserModal(false);
-      setUserCredentials({ email: "", password: "", name: "" });
-      setSelectedDistributorForUser(null);
-    } catch (e: any) {
-      toast.error(e.message || "Error creating distributor login credentials");
     }
   };
 
@@ -243,6 +265,7 @@ export default function DistributorManagementPage() {
             <motion.button
               onClick={() => {
                 setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+                setShowPassword(false);
                 setShowAddModal(true);
               }}
               whileHover={{ scale: 1.02 }}
@@ -302,14 +325,6 @@ export default function DistributorManagementPage() {
                     <span>Edit</span>
                   </motion.button>
                   <motion.button
-                    onClick={() => openUserModal(d)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="flex-1 px-3 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 text-sm font-medium transition-all"
-                  >
-                    Create Login
-                  </motion.button>
-                  <motion.button
                     onClick={() => deleteDistributor(d._id)}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -338,7 +353,7 @@ export default function DistributorManagementPage() {
 
       {/* Add Distributor Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -408,16 +423,29 @@ export default function DistributorManagementPage() {
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
                       Password <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      value={distributorForm.password}
-                      onChange={(e) => setDistributorForm({ ...distributorForm, password: e.target.value })}
-                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                      placeholder="Enter new password for distributor"
-                      minLength={6}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        value={distributorForm.password}
+                        onChange={(e) => setDistributorForm({ ...distributorForm, password: e.target.value })}
+                        className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                        placeholder="Enter new password for distributor"
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                      >
+                        {showPassword ? (
+                          <EyeOffIcon className="w-5 h-5" />
+                        ) : (
+                          <EyeIcon className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Create a new password for distributor access</p>
                   </div>
                 </div>
@@ -435,6 +463,7 @@ export default function DistributorManagementPage() {
                   onClick={() => {
                     setShowAddModal(false);
                     setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+                    setShowPassword(false);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
                 >
@@ -448,7 +477,7 @@ export default function DistributorManagementPage() {
 
       {/* Edit Distributor Modal */}
       {showEditModal && editingDistributor && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -492,6 +521,55 @@ export default function DistributorManagementPage() {
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
                 />
               </div>
+
+              <div className="pt-4 border-t border-gray-300">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Login Credentials</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      autoComplete="new-password"
+                      value={distributorForm.email}
+                      onChange={(e) => setDistributorForm({ ...distributorForm, email: e.target.value })}
+                      className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                      placeholder="distributor@example.com"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Leave empty to keep existing credentials</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showEditPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={distributorForm.password || ""}
+                        onChange={(e) => setDistributorForm({ ...distributorForm, password: e.target.value })}
+                        className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
+                        placeholder="Enter new password (leave empty to keep existing)"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditPassword(!showEditPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none z-10"
+                        tabIndex={-1}
+                      >
+                        {showEditPassword ? (
+                          <EyeOffIcon className="w-5 h-5" />
+                        ) : (
+                          <EyeIcon className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Leave empty to keep existing password</p>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
@@ -505,6 +583,7 @@ export default function DistributorManagementPage() {
                     setShowEditModal(false);
                     setEditingDistributor(null);
                     setDistributorForm({ name: "", address: "", phone: "", email: "", password: "" });
+                    setShowEditPassword(false);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
                 >
@@ -516,92 +595,6 @@ export default function DistributorManagementPage() {
         </div>
       )}
 
-      {/* Create Login Credentials Modal */}
-      {showUserModal && selectedDistributorForUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
-          >
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Create Distributor Login Credentials
-            </h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Create <strong>NEW</strong> login credentials for <strong>{selectedDistributorForUser.name}</strong> to access the distributor management panel.
-            </p>
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-xs text-blue-800">
-                <strong>Note:</strong> These are new credentials for the distributor. They are different from your admin login.
-              </p>
-            </div>
-            <form onSubmit={createDistributorLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Distributor Name
-                </label>
-                <input
-                  type="text"
-                  value={userCredentials.name}
-                  onChange={(e) => setUserCredentials({ ...userCredentials, name: e.target.value })}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                  placeholder={selectedDistributorForUser.name}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  autoComplete="new-password"
-                  value={userCredentials.email}
-                  onChange={(e) => setUserCredentials({ ...userCredentials, email: e.target.value })}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                  placeholder="distributor@example.com"
-                />
-                <p className="text-xs text-gray-500 mt-1">This will be used to login to the distributor panel</p>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Password <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={userCredentials.password}
-                  onChange={(e) => setUserCredentials({ ...userCredentials, password: e.target.value })}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                  placeholder="Enter new password for distributor"
-                  minLength={6}
-                />
-                <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Create a new password for distributor access</p>
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
-                >
-                  Create Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowUserModal(false);
-                    setSelectedDistributorForUser(null);
-                    setUserCredentials({ email: "", password: "", name: "" });
-                  }}
-                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
     </Layout>
   );
 }
