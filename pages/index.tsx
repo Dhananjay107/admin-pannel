@@ -250,7 +250,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none cursor-pointer"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? (
@@ -280,7 +280,7 @@ export default function LoginPage() {
               disabled={loading || checkingRole}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              className={`w-full rounded-lg px-4 py-2.5 font-semibold text-sm text-white disabled:opacity-60 disabled:cursor-not-allowed transition-all ${
+              className={`w-full rounded-lg px-4 py-2.5 font-semibold text-sm text-white disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-all ${
                 isAdminLogin 
                   ? "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg" 
                   : "bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-lg"
@@ -312,7 +312,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => router.push("/signup")}
-              className="text-green-600 hover:text-green-700 underline font-medium transition-colors"
+              className="text-green-600 hover:text-green-700 underline font-medium transition-colors cursor-pointer"
             >
               Create Super Admin account
             </button>{" "}

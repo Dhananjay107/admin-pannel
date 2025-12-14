@@ -131,7 +131,7 @@ export default function SignupPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none cursor-pointer"
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
@@ -155,7 +155,7 @@ export default function SignupPage() {
           <button
             type="submit"
             disabled={loading}
-              className="w-full rounded-lg bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold py-2.5 text-sm transition-all disabled:opacity-60 shadow-lg"
+              className="w-full rounded-lg bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold py-2.5 text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer shadow-lg"
           >
             {loading ? "Creating account..." : "Create account"}
           </button>
@@ -165,7 +165,7 @@ export default function SignupPage() {
           <button
             type="button"
             onClick={() => router.push("/")}
-              className="text-blue-600 hover:text-blue-700 underline font-medium transition-colors"
+              className="text-blue-600 hover:text-blue-700 underline font-medium transition-colors cursor-pointer"
           >
             Go to login
           </button>
