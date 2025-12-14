@@ -1,6 +1,6 @@
 import { io, Socket } from "socket.io-client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
 
 let socket: Socket | null = null;
 

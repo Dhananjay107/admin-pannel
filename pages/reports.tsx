@@ -6,7 +6,7 @@ import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import { ReportsIcon } from "../components/Icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
 
 type ReportStatus = "PENDING" | "FORMATTED" | "FINALIZED";
 

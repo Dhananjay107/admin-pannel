@@ -6,7 +6,7 @@ import Layout from "../components/Layout";
 import { PharmacyIcon, PlusIcon, EditIcon, DeleteIcon, EyeIcon, EyeOffIcon, ReportsIcon } from "../components/Icons";
 import { useUserStatus } from "../hooks/useUserStatus";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
 
 export default function PharmacyManagementPage() {
   const router = useRouter();

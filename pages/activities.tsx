@@ -6,7 +6,7 @@ import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import { ActivityIcon, DeleteIcon, AppointmentsIcon, PharmacyIcon, OrdersIcon, InventoryIcon, RevenueIcon, PatientIcon, DoctorIcon, HospitalIcon } from "../components/Icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
 
 interface Activity {
   _id: string;

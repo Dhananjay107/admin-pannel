@@ -16,7 +16,7 @@ export function useUserStatus(userIds: string[] = []) {
   // Fetch initial online users
   const fetchOnlineUsers = useCallback(async () => {
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (!token) {
         // No token - user not logged in, silently return
