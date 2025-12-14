@@ -3,8 +3,9 @@ import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
-import AnimatedCard from "../components/AnimatedCard";
-import { DoctorIcon, PlusIcon, EditIcon, DeleteIcon, ReportsIcon, TemplatesIcon } from "../components/Icons";
+import { DoctorIcon, PlusIcon, EditIcon, DeleteIcon, ReportsIcon, TemplatesIcon, EyeIcon } from "../components/Icons";
+import { useUserStatus } from "../hooks/useUserStatus";
+import { initializeSocket } from "../services/socket";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -22,9 +23,19 @@ export default function DoctorManagementPage() {
   const [patients, setPatients] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [revenueData, setRevenueData] = useState<any[]>([]);
+  const [doctorRevenue, setDoctorRevenue] = useState<Map<string, any>>(new Map());
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showRevenueModal, setShowRevenueModal] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedRevenue, setSelectedRevenue] = useState<any>(null);
+  const [verificationData, setVerificationData] = useState<any>(null);
   const [editingDoctor, setEditingDoctor] = useState<any>(null);
+  const [viewingDoctor, setViewingDoctor] = useState<any>(null);
   const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
   const [selectedPrescription, setSelectedPrescription] = useState<any>(null);
   
@@ -44,6 +55,10 @@ export default function DoctorManagementPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Get user IDs for status tracking
+  const doctorIds = doctors.map((d) => d._id || d.id).filter(Boolean);
+  const { getStatus, refreshStatus } = useUserStatus(doctorIds);
+
   useEffect(() => {
     const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
     const t = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -53,35 +68,226 @@ export default function DoctorManagementPage() {
     }
     setUser(JSON.parse(storedUser));
     setToken(t);
+    
+    // Initialize socket connection for real-time updates
+    initializeSocket(t);
   }, [router]);
 
   useEffect(() => {
     if (!token) return;
     fetchAllData();
   }, [token]);
+  
+  // Refresh status periodically to catch any missed socket events
+  useEffect(() => {
+    if (!token || doctorIds.length === 0) return;
+    
+    const statusRefreshInterval = setInterval(() => {
+      refreshStatus();
+    }, 5000);
+    
+    return () => {
+      clearInterval(statusRefreshInterval);
+    };
+  }, [token, doctorIds, refreshStatus]);
 
   const fetchAllData = async () => {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [doctorsRes, hospitalsRes, patientsRes, appointmentsRes, prescriptionsRes] = await Promise.all([
+      const [doctorsRes, hospitalsRes, patientsRes, appointmentsRes, prescriptionsRes, financeRes] = await Promise.all([
         fetch(`${API_BASE}/api/users?role=DOCTOR`, { headers }),
         fetch(`${API_BASE}/api/master/hospitals`, { headers }),
         fetch(`${API_BASE}/api/users?role=PATIENT`, { headers }),
         fetch(`${API_BASE}/api/appointments`, { headers }),
         fetch(`${API_BASE}/api/prescriptions`, { headers }),
+        fetch(`${API_BASE}/api/finance/summary`, { headers }),
       ]);
       
-      setDoctors(doctorsRes.ok ? await doctorsRes.json() : []);
+      // Fetch payment history (verified payments)
+      const paymentHistoryRes = await fetch(`${API_BASE}/api/finance/summary?type=DOCTOR_COMMISSION`, { headers });
+      const paymentHistoryData = paymentHistoryRes.ok ? await paymentHistoryRes.json() : { entries: [] };
+      
+      const doctorsData = doctorsRes.ok ? await doctorsRes.json() : [];
+      const appointmentsData = appointmentsRes.ok ? await appointmentsRes.json() : [];
+      const financeResponse = financeRes.ok ? await financeRes.json() : { entries: [] };
+      const financeData = financeResponse.entries || [];
+      
+      const prescriptionsData = prescriptionsRes.ok ? await prescriptionsRes.json() : [];
+      
+      setDoctors(doctorsData);
       setHospitals(hospitalsRes.ok ? await hospitalsRes.json() : []);
       setPatients(patientsRes.ok ? await patientsRes.json() : []);
-      setAppointments(appointmentsRes.ok ? await appointmentsRes.json() : []);
-      setPrescriptions(prescriptionsRes.ok ? await prescriptionsRes.json() : []);
+      setAppointments(appointmentsData);
+      setPrescriptions(prescriptionsData);
+      
+      // Process revenue data
+      processRevenueData(doctorsData, appointmentsData, financeData, prescriptionsData);
+      
+      // Process payment history (verified payments) - remove duplicates
+      const verifiedPayments = financeData
+        .filter((f: any) => f.type === "DOCTOR_COMMISSION" && f.meta?.verified === true);
+      
+      // Remove duplicates based on finance entry ID and appointment ID
+      const uniquePayments = verifiedPayments.reduce((acc: any[], payment: any) => {
+        const existing = acc.find((p: any) => 
+          p._id === payment._id || 
+          (p.meta?.appointmentId === payment.meta?.appointmentId && 
+           p.doctorId === payment.doctorId &&
+           p.meta?.appointmentId)
+        );
+        if (!existing) {
+          acc.push(payment);
+        }
+        return acc;
+      }, []);
+      
+      const sortedPayments = uniquePayments.sort((a: any, b: any) => 
+        new Date(b.meta?.verifiedAt || b.occurredAt).getTime() - new Date(a.meta?.verifiedAt || a.occurredAt).getTime()
+      );
+      setPaymentHistory(sortedPayments);
     } catch (e) {
       toast.error("Failed to fetch data");
     } finally {
       setLoading(false);
     }
+  };
+
+  const processRevenueData = (doctorsList: any[], appointmentsList: any[], financeList: any[], prescriptionsList: any[]) => {
+    // Get completed appointments with payments
+    const completedAppointments = appointmentsList.filter((apt: any) => 
+      apt.status === "COMPLETED" || apt.status === "CONFIRMED"
+    );
+
+    // Calculate revenue per doctor - use Set to track processed doctors
+    const revenueMap = new Map<string, any>();
+    const processedDoctors = new Set<string>();
+    
+    doctorsList.forEach((doctor: any) => {
+      const doctorKey = String(doctor._id || doctor.id);
+      
+      // Skip if already processed
+      if (processedDoctors.has(doctorKey)) {
+        return;
+      }
+      processedDoctors.add(doctorKey);
+      
+      const doctorAppointments = completedAppointments.filter((apt: any) => {
+        const aptDoctorId = String(apt.doctorId);
+        return aptDoctorId === String(doctor._id) || aptDoctorId === String(doctor.id) || 
+               aptDoctorId === doctorKey;
+      });
+      
+      const totalRevenue = doctorAppointments.reduce((sum: number, apt: any) => {
+        return sum + (doctor.serviceCharge || 0);
+      }, 0);
+
+      // Get finance entries for this doctor
+      const doctorFinance = financeList.filter((f: any) => {
+        const fDoctorId = String(f.doctorId);
+        return fDoctorId === String(doctor._id) || fDoctorId === String(doctor.id) || 
+               fDoctorId === doctorKey;
+      });
+
+      const verifiedAmount = doctorFinance
+        .filter((f: any) => f.type === "DOCTOR_COMMISSION" && f.meta?.verified === true)
+        .reduce((sum: number, f: any) => sum + f.amount, 0);
+
+      // Calculate pending amount based on unverified appointments only
+      // Each appointment = doctor's service charge
+      const unverifiedAppointments = doctorAppointments.filter((apt: any) => {
+        const financeEntry = financeList.find((f: any) => 
+          (f.appointmentId === apt._id || f.appointmentId === apt._id?.toString()) &&
+          (f.doctorId === doctor._id || f.doctorId === doctor.id || String(f.doctorId) === doctorKey)
+        );
+        return !financeEntry?.meta?.verified;
+      });
+      
+      const pendingAmount = unverifiedAppointments.reduce((sum: number, apt: any) => {
+        return sum + (doctor.serviceCharge || 0);
+      }, 0);
+
+      if (doctorAppointments.length > 0 || totalRevenue > 0) {
+        revenueMap.set(doctorKey, {
+          doctorId: doctor._id || doctor.id,
+          doctorName: doctor.name,
+          totalAppointments: doctorAppointments.length,
+          totalRevenue,
+          verifiedAmount,
+          pendingAmount,
+          appointments: doctorAppointments,
+        });
+      }
+    });
+
+    setDoctorRevenue(revenueMap);
+    
+    // Create revenue review list - use Set to prevent duplicates
+    const revenueList: any[] = [];
+    const processedAppointments = new Set<string>();
+    
+    completedAppointments.forEach((apt: any) => {
+      const appointmentId = apt._id || apt.id;
+      
+      // Skip if already processed
+      if (processedAppointments.has(appointmentId)) {
+        return;
+      }
+      processedAppointments.add(appointmentId);
+      
+      const doctor = doctorsList.find((d: any) => 
+        (d._id === apt.doctorId || d.id === apt.doctorId) ||
+        (String(d._id) === String(apt.doctorId)) || 
+        (String(d.id) === String(apt.doctorId))
+      );
+      
+      if (doctor && doctor.serviceCharge) {
+        // Find finance entry - check both appointmentId field and meta.appointmentId
+        const financeEntry = financeList.find((f: any) => {
+          const fAppointmentId = f.appointmentId || f.meta?.appointmentId;
+          const fDoctorId = String(f.doctorId);
+          const doctorIdStr = String(doctor._id || doctor.id);
+          const aptIdStr = String(appointmentId);
+          
+          return (
+            f.type === "DOCTOR_COMMISSION" &&
+            (fAppointmentId === appointmentId || 
+             fAppointmentId === aptIdStr || 
+             String(fAppointmentId) === aptIdStr) &&
+            (fDoctorId === doctorIdStr || 
+             f.doctorId === doctor._id || 
+             f.doctorId === doctor.id)
+          );
+        });
+        
+        // Check if prescription exists for this appointment
+        const hasPrescription = prescriptionsList.some((pres: any) => 
+          pres.appointmentId === appointmentId || pres.appointmentId === appointmentId?.toString()
+        );
+        
+        // Determine verified status - must be explicitly verified
+        const isVerified = financeEntry?.meta?.verified === true;
+        
+        revenueList.push({
+          appointmentId: appointmentId,
+          doctorId: doctor._id || doctor.id,
+          doctorName: doctor.name,
+          patientName: apt.patientName,
+          patientId: apt.patientId,
+          scheduledAt: apt.scheduledAt,
+          status: apt.status,
+          amount: doctor.serviceCharge,
+          verified: isVerified,
+          verifiedAt: financeEntry?.meta?.verifiedAt,
+          financeId: financeEntry?._id,
+          hasPrescription,
+        });
+      }
+    });
+
+    setRevenueData(revenueList.sort((a, b) => 
+      new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
+    ));
   };
 
   const createDoctor = async (e: React.FormEvent) => {
@@ -251,6 +457,204 @@ export default function DoctorManagementPage() {
     return patient?.name || (idString.length > 8 ? idString.slice(-8) : idString);
   };
 
+  const prepareVerification = async (revenueItem: any) => {
+    if (!token) return;
+    
+    // Get doctor's prescriptions for this appointment
+    const appointmentPrescriptions = prescriptions.filter((pres: any) => 
+      pres.appointmentId === revenueItem.appointmentId || pres.appointmentId === revenueItem.appointmentId?.toString()
+    );
+    
+    // Get all prescriptions by this doctor
+    const doctorPrescriptions = prescriptions.filter((pres: any) => 
+      pres.doctorId === revenueItem.doctorId || pres.doctorId === revenueItem.doctorId?.toString()
+    );
+    
+    // Get all appointments with prescriptions
+    const appointmentsWithPrescriptions = appointments.filter((apt: any) => {
+      return prescriptions.some((pres: any) => 
+        (pres.appointmentId === apt._id || pres.appointmentId === apt._id?.toString()) &&
+        (pres.doctorId === revenueItem.doctorId || pres.doctorId === revenueItem.doctorId?.toString())
+      );
+    });
+    
+    // Calculate total pending amount for this doctor
+    const doctor = doctors.find((d: any) => d._id === revenueItem.doctorId || d.id === revenueItem.doctorId);
+    const totalPendingAmount = revenueData
+      .filter((r: any) => r.doctorId === revenueItem.doctorId && !r.verified && r.hasPrescription)
+      .reduce((sum: number, r: any) => sum + r.amount, 0);
+    
+    setVerificationData({
+      ...revenueItem,
+      appointmentPrescriptions,
+      doctorPrescriptions,
+      totalPatientsPrescribed: appointmentsWithPrescriptions.length,
+      totalPendingAmount,
+      doctor,
+    });
+    setShowVerifyModal(true);
+  };
+
+  const verifyPayment = async () => {
+    if (!token || !verificationData) return;
+    try {
+      // Find the appointment to get patientId
+      const appointment = appointments.find((apt: any) => 
+        apt._id === verificationData.appointmentId || apt.id === verificationData.appointmentId
+      );
+      
+      // Create finance entry for verified payment
+      const res = await fetch(`${API_BASE}/api/finance`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          doctorId: verificationData.doctorId,
+          patientId: appointment?.patientId || verificationData.patientId,
+          type: "DOCTOR_COMMISSION",
+          amount: verificationData.amount,
+          meta: {
+            verified: true,
+            verifiedAt: new Date().toISOString(),
+            appointmentId: verificationData.appointmentId,
+            verifiedBy: user?.id || user?._id,
+            verifiedByName: user?.name,
+          },
+          occurredAt: verificationData.scheduledAt || new Date().toISOString(),
+        }),
+      });
+
+      if (res.ok) {
+        const financeEntry = await res.json();
+        
+        // Update revenue data immediately for real-time update
+        setRevenueData((prev) => 
+          prev.map((item) => 
+            item.appointmentId === verificationData.appointmentId
+              ? { ...item, verified: true, verifiedAt: new Date().toISOString() }
+              : item
+          )
+        );
+        
+        // Update doctor revenue map
+        setDoctorRevenue((prev) => {
+          const newMap = new Map(prev);
+          const doctorRev = newMap.get(verificationData.doctorId);
+          if (doctorRev) {
+            newMap.set(verificationData.doctorId, {
+              ...doctorRev,
+              verifiedAmount: doctorRev.verifiedAmount + verificationData.amount,
+              pendingAmount: Math.max(0, doctorRev.pendingAmount - verificationData.amount),
+            });
+          }
+          return newMap;
+        });
+        
+        // Add to payment history immediately - check for duplicates
+        const newPayment = {
+          ...financeEntry,
+          meta: {
+            ...financeEntry.meta,
+            patientName: verificationData.patientName,
+          },
+        };
+        setPaymentHistory((prev) => {
+          // Check if this payment already exists (by finance ID or appointment ID + doctor ID)
+          const appointmentId = newPayment.meta?.appointmentId || newPayment.appointmentId;
+          const doctorId = String(newPayment.doctorId);
+          const exists = prev.some((p: any) => {
+            const pAppointmentId = p.meta?.appointmentId || p.appointmentId;
+            const pDoctorId = String(p.doctorId);
+            return (
+              p._id === newPayment._id || 
+              (appointmentId && pAppointmentId === appointmentId && pDoctorId === doctorId)
+            );
+          });
+          if (!exists) {
+            return [newPayment, ...prev];
+          }
+          return prev;
+        });
+        
+        // Send notification to doctor
+        try {
+          await fetch(`${API_BASE}/api/notifications`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              userId: verificationData.doctorId,
+              type: "PAYMENT_RECEIVED",
+              title: "Payment Received",
+              message: `You have received ₹${verificationData.amount.toLocaleString()} for appointment with ${verificationData.patientName}`,
+              channel: "PUSH",
+              metadata: {
+                amount: verificationData.amount,
+                appointmentId: verificationData.appointmentId,
+                patientName: verificationData.patientName,
+              },
+            }),
+          });
+        } catch (notifError) {
+          console.error("Failed to send notification:", notifError);
+        }
+        
+        toast.success("Payment verified and sent to doctor!");
+        setShowVerifyModal(false);
+        setVerificationData(null);
+        
+        // Refresh data in background
+        fetchAllData();
+      } else {
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.message || "Failed to verify payment");
+      }
+    } catch (e: any) {
+      toast.error("Error verifying payment");
+      console.error("Verify payment error:", e);
+    }
+  };
+
+  const downloadPaymentHistoryExcel = () => {
+    // Create CSV content
+    const headers = ['Date', 'Doctor', 'Patient', 'Amount (₹)', 'Verified By', 'Status'];
+    const rows = paymentHistory.map((payment) => {
+      const doctor = doctors.find((d: any) => d._id === payment.doctorId || d.id === payment.doctorId);
+      const date = new Date(payment.meta?.verifiedAt || payment.occurredAt);
+      return [
+        date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        doctor?.name || 'Unknown Doctor',
+        payment.meta?.patientName || 'N/A',
+        payment.amount.toLocaleString(),
+        payment.meta?.verifiedByName || 'Admin',
+        'Done',
+      ];
+    });
+    
+    // Combine headers and rows
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+    
+    // Add BOM for Excel UTF-8 support
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `payment_history_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success('Payment history downloaded successfully!');
+  };
 
   const filteredDoctors = doctors.filter((doc) =>
     doc.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -305,7 +709,11 @@ export default function DoctorManagementPage() {
 
       {/* Action Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <AnimatedCard delay={0.1}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
+        >
           <motion.button
             onClick={() => setActiveTab("records")}
             whileHover={{ scale: 1.02 }}
@@ -326,9 +734,13 @@ export default function DoctorManagementPage() {
               </div>
             </div>
           </motion.button>
-        </AnimatedCard>
+        </motion.div>
 
-        <AnimatedCard delay={0.2}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.4 }}
+        >
           <motion.button
             onClick={() => setActiveTab("prescriptions")}
             whileHover={{ scale: 1.02 }}
@@ -349,9 +761,13 @@ export default function DoctorManagementPage() {
               </div>
             </div>
           </motion.button>
-        </AnimatedCard>
+        </motion.div>
 
-        <AnimatedCard delay={0.3}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.4 }}
+        >
           <motion.button
             onClick={() => setActiveTab("documents")}
             whileHover={{ scale: 1.02 }}
@@ -372,7 +788,7 @@ export default function DoctorManagementPage() {
               </div>
             </div>
           </motion.button>
-        </AnimatedCard>
+        </motion.div>
       </div>
 
       {/* Doctor Management Tab */}
@@ -384,74 +800,108 @@ export default function DoctorManagementPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {doctors.map((d, idx) => (
-                <AnimatedCard key={d._id} delay={idx * 0.1}>
-                  <div className="p-6 border border-gray-300 rounded-lg bg-white hover:shadow-md transition-all">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
+              {doctors.map((d, idx) => {
+                // Only check socket status (real-time login tracking)
+                const userId = d._id || d.id;
+                const isOnline = getStatus(userId);
+                return (
+                  <motion.div
+                    key={d._id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.1, duration: 0.4 }}
+                    className="p-5 border border-blue-200 rounded-lg bg-white hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="relative flex-shrink-0">
                         <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
-                          <DoctorIcon className="w-6 h-6 text-blue-900" />
+                          <DoctorIcon className="w-6 h-6 text-blue-700" />
                         </div>
-                        <div>
-                          <h3 className="font-bold text-lg text-gray-900">{d.name}</h3>
-                          <p className="text-xs text-gray-500">ID: {d._id.slice(-8)}</p>
+                        {/* Online Status Indicator */}
+                        <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                          isOnline ? 'bg-green-500' : 'bg-gray-400'
+                        }`} title={isOnline ? 'Online' : 'Offline'} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-base text-gray-900 mb-2">{d.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                            isOnline 
+                              ? 'bg-green-100 text-green-700' 
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {isOnline ? 'Active' : 'Inactive'}
+                          </span>
+                          <span className="text-xs text-gray-400">#{d._id.slice(-8)}</span>
                         </div>
                       </div>
                     </div>
                     
                     <div className="space-y-2 mb-4">
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-400">📧</span>
+                        <span className="text-gray-500 text-base">📧</span>
                         <p className="text-sm text-gray-600">{d.email}</p>
                       </div>
                       {d.phone && (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400">📞</span>
+                          <span className="text-pink-500 text-base">📞</span>
                           <p className="text-sm text-gray-600">{d.phone}</p>
                         </div>
                       )}
                       {d.specialization && (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400">🏥</span>
+                          <span className="text-blue-500 text-base">🏥</span>
                           <p className="text-sm text-gray-600">{d.specialization}</p>
                         </div>
                       )}
                       {d.qualification && (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400">🎓</span>
+                          <span className="text-purple-500 text-base">🎓</span>
                           <p className="text-sm text-gray-600">{d.qualification}</p>
                         </div>
                       )}
                       {d.serviceCharge && (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400">💰</span>
-                          <p className="text-sm text-gray-600 font-semibold">Service Charge: ₹{d.serviceCharge.toLocaleString()}</p>
+                          <span className="text-green-500 text-base">💰</span>
+                          <p className="text-sm text-gray-600 font-semibold">₹{d.serviceCharge.toLocaleString()}</p>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex gap-2 pt-4 border-t border-gray-100">
+                    <div className="flex gap-2 pt-3 border-t border-gray-100">
+                      <motion.button
+                        onClick={() => {
+                          setViewingDoctor(d);
+                          setShowViewModal(true);
+                        }}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="flex-1 px-3 py-2 rounded bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <EyeIcon className="w-4 h-4" />
+                        <span>View</span>
+                      </motion.button>
                       <motion.button
                         onClick={() => openEditModal(d)}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="flex-1 px-3 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-2"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="flex-1 px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
                   >
                     <EditIcon className="w-4 h-4" />
                     <span>Edit</span>
                   </motion.button>
                       <motion.button
                         onClick={() => deleteDoctor(d._id)}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="px-3 py-2 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
                       >
-                        🗑️
+                        <DeleteIcon className="w-4 h-4" />
                       </motion.button>
                     </div>
-                  </div>
-                </AnimatedCard>
-              ))}
+                  </motion.div>
+                );
+              })}
               
               {doctors.length === 0 && (
                 <div className="col-span-full text-center py-12">
@@ -472,7 +922,12 @@ export default function DoctorManagementPage() {
       {/* Doctor Records Tab */}
       {activeTab === "records" && (
         <>
-          <AnimatedCard delay={0.1} className="mb-6">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.4 }}
+            className="mb-6"
+          >
             <input
               type="text"
               placeholder="Search doctors by name or email..."
@@ -480,7 +935,7 @@ export default function DoctorManagementPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-          </AnimatedCard>
+          </motion.div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {filteredDoctors.map((doctor, idx) => {
@@ -526,7 +981,11 @@ export default function DoctorManagementPage() {
       {/* Prescription Reports Tab */}
       {activeTab === "prescriptions" && (
         <>
-          <AnimatedCard delay={0.1}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.4 }}
+          >
             <h3 className="text-lg font-bold text-black mb-4">Prescription Reports</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {prescriptions.map((pres, idx) => (
@@ -590,7 +1049,7 @@ export default function DoctorManagementPage() {
                 </div>
               )}
             </div>
-          </AnimatedCard>
+          </motion.div>
 
           {/* Prescription Detail Modal */}
           {selectedPrescription && (
@@ -726,18 +1185,402 @@ export default function DoctorManagementPage() {
         </>
       )}
 
-      {/* Document Panel Tab */}
+      {/* Document Panel Tab - Revenue Review */}
       {activeTab === "documents" && (
-        <AnimatedCard delay={0.1}>
-          <h3 className="text-lg font-bold text-black mb-4">Document Panel</h3>
-          <div className="text-center py-12">
-            <div className="text-4xl mb-3">📁</div>
-            <p className="text-sm text-gray-600 font-medium">Document Management</p>
-            <p className="text-xs text-gray-500 mt-1">Document panel feature coming soon</p>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.4 }}
+          className="space-y-6"
+        >
+          {/* Header */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">Revenue Review Panel</h3>
+                <p className="text-sm text-gray-600">Review and verify doctor payments from appointments</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Total Pending</p>
+                  <p className="text-lg font-bold text-orange-600">
+                    ₹{revenueData.filter((r: any) => !r.verified).reduce((sum: number, r: any) => sum + r.amount, 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Total Verified</p>
+                  <p className="text-lg font-bold text-green-600">
+                    ₹{revenueData.filter((r: any) => r.verified).reduce((sum: number, r: any) => sum + r.amount, 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-        </AnimatedCard>
+
+          {/* Revenue Transactions Table */}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+              <div>
+                <h4 className="text-lg font-bold text-gray-900">Appointment Payments</h4>
+                <p className="text-xs text-gray-600 mt-1">Review and verify individual appointment payments</p>
+              </div>
+              <motion.button
+                onClick={() => setShowHistoryModal(true)}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-4 py-2 rounded bg-blue-900 hover:bg-blue-800 text-white text-sm font-medium transition-all flex items-center gap-2"
+              >
+                <span>📥</span>
+                View Full History
+              </motion.button>
+            </div>
+            
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : revenueData.length === 0 ? (
+          <div className="text-center py-12">
+                <div className="text-4xl mb-3">💰</div>
+                <p className="text-sm text-gray-600 font-medium">No revenue data available</p>
+                <p className="text-xs text-gray-500 mt-1">Completed appointments will appear here</p>
+          </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Doctor</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Patient</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Status</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {revenueData.map((item) => (
+                      <tr key={item.appointmentId} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {new Date(item.scheduledAt).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900 font-medium">{item.doctorName}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{item.patientName}</td>
+                        <td className="px-4 py-3 text-sm font-bold text-gray-900">₹{item.amount.toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                            item.verified
+                              ? 'bg-green-100 text-green-700 border border-green-200'
+                              : 'bg-orange-100 text-orange-700 border border-orange-200'
+                          }`}>
+                            {item.verified ? 'Done' : 'Pending'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {!item.verified ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <motion.button
+                                onClick={() => prepareVerification(item)}
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                className={`px-3 py-1.5 rounded text-white text-xs font-medium transition-all ${
+                                  item.hasPrescription 
+                                    ? 'bg-green-600 hover:bg-green-700' 
+                                    : 'bg-gray-400 cursor-not-allowed'
+                                }`}
+                                disabled={!item.hasPrescription}
+                                title={!item.hasPrescription ? 'Prescription required before payment' : 'Verify Payment'}
+                              >
+                                Verify
+                              </motion.button>
+                              <motion.button
+                                onClick={() => {
+                                  setSelectedRevenue(item);
+                                  setShowRevenueModal(true);
+                                }}
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                className="px-3 py-1.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-medium transition-all"
+                              >
+                                View
+                              </motion.button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <span className="text-xs text-gray-500 italic">Completed</span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </motion.div>
       )}
 
+      {/* Verify Payment Modal */}
+      {showVerifyModal && verificationData && (
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Verify Payment</h2>
+              <button
+                onClick={() => {
+                  setShowVerifyModal(false);
+                  setVerificationData(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-all"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Doctor Info */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <DoctorIcon className="w-8 h-8 text-blue-700" />
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">{verificationData.doctorName}</h3>
+                    <p className="text-sm text-gray-600">Payment Verification</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Prescription Summary */}
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h4 className="font-bold text-gray-900 mb-3">Prescription History</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 mb-1">Total Patients Prescribed</p>
+                    <p className="text-2xl font-bold text-green-700">{verificationData.totalPatientsPrescribed || 0}</p>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 mb-1">This Appointment</p>
+                    <p className="text-2xl font-bold text-blue-700">
+                      {verificationData.appointmentPrescriptions?.length > 0 ? '✓ Has Prescription' : '✗ No Prescription'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Details */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="font-bold text-gray-900 mb-3">Payment Details</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Patient:</span>
+                    <span className="text-sm font-semibold text-gray-900">{verificationData.patientName}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Appointment Date:</span>
+                    <span className="text-sm font-semibold text-gray-900">
+                      {new Date(verificationData.scheduledAt).toLocaleDateString('en-IN', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                    <span className="text-base font-bold text-gray-900">Payment Amount:</span>
+                    <span className="text-2xl font-bold text-green-700">₹{verificationData.amount.toLocaleString()}</span>
+                  </div>
+                  {verificationData.totalPendingAmount > verificationData.amount && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-sm text-gray-600">Total Pending for Doctor:</span>
+                      <span className="text-sm font-semibold text-orange-700">₹{verificationData.totalPendingAmount.toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <motion.button
+                  onClick={verifyPayment}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex-1 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-all"
+                >
+                  Verify & Send Payment
+                </motion.button>
+                <motion.button
+                  onClick={() => {
+                    setShowVerifyModal(false);
+                    setVerificationData(null);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-4 py-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold transition-all"
+                >
+                  Cancel
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* View Doctor Modal */}
+      {showViewModal && viewingDoctor && (
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Doctor Details</h2>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewingDoctor(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Header Section */}
+              <div className="flex items-center gap-4 pb-4 border-b border-gray-200">
+                <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200 relative">
+                  <DoctorIcon className="w-8 h-8 text-blue-700" />
+                  <div className={`absolute -top-1 -right-1 w-5 h-5 rounded-full border-2 border-white ${
+                    getStatus(viewingDoctor._id || viewingDoctor.id) ? 'bg-green-500' : 'bg-gray-400'
+                  }`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-xl font-bold text-gray-900">{viewingDoctor.name}</h3>
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                      getStatus(viewingDoctor._id || viewingDoctor.id)
+                        ? 'bg-green-100 text-green-700 border border-green-200'
+                        : 'bg-gray-100 text-gray-600 border border-gray-200'
+                    }`}>
+                      {getStatus(viewingDoctor._id || viewingDoctor.id) ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-500">ID: #{viewingDoctor._id.slice(-8)}</p>
+                </div>
+              </div>
+
+              {/* Details Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 text-lg">📧</span>
+                    <p className="text-sm text-gray-900">{viewingDoctor.email}</p>
+                  </div>
+                </div>
+
+                {viewingDoctor.phone && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pink-500 text-lg">📞</span>
+                      <p className="text-sm text-gray-900 font-medium">{viewingDoctor.phone}</p>
+                    </div>
+                  </div>
+                )}
+
+                {viewingDoctor.specialization && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Specialization</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-blue-500 text-lg">🏥</span>
+                      <p className="text-sm text-gray-900">{viewingDoctor.specialization}</p>
+                    </div>
+                  </div>
+                )}
+
+                {viewingDoctor.qualification && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Qualification</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-purple-500 text-lg">🎓</span>
+                      <p className="text-sm text-gray-900">{viewingDoctor.qualification}</p>
+                    </div>
+                  </div>
+                )}
+
+                {viewingDoctor.serviceCharge && (
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Service Charge</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-500 text-lg">💰</span>
+                      <p className="text-sm text-gray-900 font-semibold">₹{viewingDoctor.serviceCharge.toLocaleString()}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Statistics */}
+              <div className="pt-4 border-t border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Statistics</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  {Object.entries(getDoctorStats(viewingDoctor._id || viewingDoctor.id)).map(
+                    ([key, value]) => (
+                      <div key={key} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <p className="text-xs text-gray-600 mb-1">
+                          {key.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())}
+                        </p>
+                        <p className="text-lg font-bold text-gray-900">{value}</p>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <motion.button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setViewingDoctor(null);
+                    openEditModal(viewingDoctor);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex-1 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
+                >
+                  <EditIcon className="w-4 h-4" />
+                  <span>Edit Doctor</span>
+                </motion.button>
+                <motion.button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setViewingDoctor(null);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+                >
+                  Close
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Doctor Detail Modal */}
       {selectedDoctor && (
@@ -1092,6 +1935,276 @@ export default function DoctorManagementPage() {
                 </button>
               </div>
             </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Revenue Details Modal */}
+      {showRevenueModal && selectedRevenue && (
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Revenue Details</h2>
+              <button
+                onClick={() => {
+                  setShowRevenueModal(false);
+                  setSelectedRevenue(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-all"
+              >
+                ×
+              </button>
+            </div>
+
+            {selectedRevenue.appointments ? (
+              // Doctor Summary View
+              <div className="space-y-6">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <DoctorIcon className="w-8 h-8 text-blue-700" />
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">{selectedRevenue.doctorName}</h3>
+                      <p className="text-sm text-gray-600">Doctor Revenue Summary</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-1">Total Appointments</p>
+                    <p className="text-2xl font-bold text-gray-900">{selectedRevenue.totalAppointments}</p>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-1">Verified Amount</p>
+                    <p className="text-2xl font-bold text-green-700">₹{selectedRevenue.verifiedAmount.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                    <p className="text-xs text-gray-500 mb-1">Pending Amount</p>
+                    <p className="text-2xl font-bold text-orange-700">₹{selectedRevenue.pendingAmount.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                    <h4 className="font-bold text-gray-900">Appointment Details</h4>
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    {selectedRevenue.appointments.map((apt: any, idx: number) => {
+                      const doctor = doctors.find((d: any) => d._id === apt.doctorId || d.id === apt.doctorId);
+                      const amount = doctor?.serviceCharge || 0;
+                      return (
+                        <div key={apt._id || idx} className="p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-semibold text-gray-900">{apt.patientName}</p>
+                              <p className="text-sm text-gray-600">
+                                {new Date(apt.scheduledAt).toLocaleDateString('en-IN', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">Status: {apt.status}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-gray-900">₹{amount.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Individual Appointment View
+              <div className="space-y-6">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h3 className="text-lg font-bold text-gray-900 mb-2">Appointment Payment</h3>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Doctor</p>
+                      <p className="font-semibold text-gray-900">{selectedRevenue.doctorName}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Patient</p>
+                      <p className="font-semibold text-gray-900">{selectedRevenue.patientName}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Appointment Date</p>
+                      <p className="font-semibold text-gray-900">
+                        {new Date(selectedRevenue.scheduledAt).toLocaleDateString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Status</p>
+                      <span className={`text-xs px-2 py-1 rounded-full font-semibold inline-block ${
+                        selectedRevenue.verified
+                          ? 'bg-green-100 text-green-700 border border-green-200'
+                          : 'bg-orange-100 text-orange-700 border border-orange-200'
+                      }`}>
+                        {selectedRevenue.verified ? 'Done' : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Payment Amount</p>
+                      <p className="text-3xl font-bold text-gray-900">₹{selectedRevenue.amount.toLocaleString()}</p>
+                    </div>
+                    {selectedRevenue.verified && selectedRevenue.verifiedAt && (
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500 mb-1">Verified On</p>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {new Date(selectedRevenue.verifiedAt).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {!selectedRevenue.verified && (
+                  <div className="flex gap-3">
+                    <motion.button
+                      onClick={() => {
+                        prepareVerification(selectedRevenue);
+                        setShowRevenueModal(false);
+                      }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex-1 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-all"
+                    >
+                      Verify & Send Payment
+                    </motion.button>
+                    <motion.button
+                      onClick={() => {
+                        setShowRevenueModal(false);
+                        setSelectedRevenue(null);
+                      }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="px-4 py-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold transition-all"
+                    >
+                      Cancel
+                    </motion.button>
+                  </div>
+                )}
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+
+      {/* Payment History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-5xl w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Payment History</h2>
+                <p className="text-sm text-gray-600 mt-1">Complete record of all verified payments</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <motion.button
+                  onClick={downloadPaymentHistoryExcel}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-4 py-2 rounded bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-all flex items-center gap-2"
+                >
+                  <span>📥</span>
+                  Download Excel
+                </motion.button>
+                <button
+                  onClick={() => setShowHistoryModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-all"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {paymentHistory.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-4xl mb-3">📜</div>
+                <p className="text-sm text-gray-600 font-medium">No payment history</p>
+                <p className="text-xs text-gray-500 mt-1">Verified payments will appear here</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Doctor</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Patient</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Verified By</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {paymentHistory.map((payment, index) => {
+                      const doctor = doctors.find((d: any) => d._id === payment.doctorId || d.id === payment.doctorId);
+                      // Use unique key combining finance ID and index to prevent duplicates
+                      const uniqueKey = payment._id || `payment-${index}-${payment.meta?.appointmentId || ''}`;
+                      return (
+                        <tr key={uniqueKey} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 text-sm text-gray-900">
+                            {new Date(payment.meta?.verifiedAt || payment.occurredAt).toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                            {doctor?.name || 'Unknown Doctor'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {payment.meta?.patientName || 'N/A'}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-bold text-green-700">₹{payment.amount.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {payment.meta?.verifiedByName || 'Admin'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs px-2 py-1 rounded-full font-semibold bg-green-100 text-green-700 border border-green-200">
+                              Done
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </motion.div>
         </div>
       )}

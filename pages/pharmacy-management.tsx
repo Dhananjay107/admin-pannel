@@ -3,8 +3,8 @@ import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
-import AnimatedCard from "../components/AnimatedCard";
-import { PharmacyIcon, PlusIcon, EditIcon, DeleteIcon, EyeIcon, EyeOffIcon } from "../components/Icons";
+import { PharmacyIcon, PlusIcon, EditIcon, DeleteIcon, EyeIcon, EyeOffIcon, ReportsIcon } from "../components/Icons";
+import { useUserStatus } from "../hooks/useUserStatus";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -18,7 +18,9 @@ export default function PharmacyManagementPage() {
   const [distributors, setDistributors] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingPharmacy, setEditingPharmacy] = useState<any>(null);
+  const [viewingPharmacy, setViewingPharmacy] = useState<any>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
   
@@ -33,6 +35,51 @@ export default function PharmacyManagementPage() {
   });
   
   const [loading, setLoading] = useState(true);
+
+  // Get pharmacy user IDs for status tracking
+  const [pharmacyUserMap, setPharmacyUserMap] = useState<Map<string, string>>(new Map());
+  
+  useEffect(() => {
+    // Fetch pharmacy user IDs - filter by pharmacyId on frontend
+    const fetchPharmacyUserIds = async () => {
+      if (!token || pharmacies.length === 0) return;
+      try {
+        // Fetch all pharmacy staff users once
+        const userRes = await fetch(`${API_BASE}/api/users?role=PHARMACY_STAFF`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (!userRes.ok) {
+          console.error("Failed to fetch pharmacy users");
+          return;
+        }
+        
+        const users = await userRes.json();
+        const userList = Array.isArray(users) ? users : (users.users || []);
+        
+        // Map each pharmacy to its user
+        const map = new Map<string, string>();
+        for (const pharmacy of pharmacies) {
+          // Find user for THIS SPECIFIC pharmacy
+          const pharmacyUser = userList.find((u: any) => 
+            (u.pharmacyId === pharmacy._id) || 
+            (String(u.pharmacyId) === String(pharmacy._id))
+          );
+          if (pharmacyUser) {
+            const userId = pharmacyUser._id || pharmacyUser.id;
+            map.set(pharmacy._id, userId);
+          }
+        }
+        setPharmacyUserMap(map);
+      } catch (e) {
+        console.error("Failed to fetch pharmacy user IDs:", e);
+      }
+    };
+    fetchPharmacyUserIds();
+  }, [pharmacies, token]);
+
+  const pharmacyUserIds = Array.from(pharmacyUserMap.values());
+  const { getStatus } = useUserStatus(pharmacyUserIds);
 
   useEffect(() => {
     const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
@@ -159,31 +206,103 @@ export default function PharmacyManagementPage() {
         throw new Error(error.message || "Failed to update pharmacy");
       }
 
-      // Update login credentials if email and password are provided
-      if (pharmacyForm.email && pharmacyForm.password) {
-        const userRes = await fetch(`${API_BASE}/api/users/signup`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: pharmacyForm.name,
-            email: pharmacyForm.email,
-            password: pharmacyForm.password,
-            role: "PHARMACY_STAFF",
-            pharmacyId: editingPharmacy._id,
-          }),
-        });
-
-        if (!userRes.ok) {
-          const error = await userRes.json().catch(() => ({}));
-          toast("Pharmacy updated but failed to update login credentials: " + (error.message || "Unknown error"), {
-            icon: "⚠️",
-            duration: 4000,
+      // Update login credentials if email or password are provided
+      if (pharmacyForm.email || pharmacyForm.password) {
+        // First, find existing user for THIS SPECIFIC pharmacy
+        let existingUser = null;
+        try {
+          // Fetch all pharmacy staff users and filter by pharmacyId on frontend
+          const userRes = await fetch(`${API_BASE}/api/users?role=PHARMACY_STAFF`, {
+            headers: { Authorization: `Bearer ${token}` },
           });
+          if (userRes.ok) {
+            const users = await userRes.json();
+            const userList = Array.isArray(users) ? users : (users.users || []);
+            // Filter to find user for THIS SPECIFIC pharmacy
+            existingUser = userList.find((u: any) => 
+              (u.pharmacyId === editingPharmacy._id) || 
+              (String(u.pharmacyId) === String(editingPharmacy._id))
+            );
+          }
+        } catch (e) {
+          console.error("Error fetching existing user:", e);
+        }
+
+        if (existingUser) {
+          // Update existing user - ensure pharmacyId is preserved
+          const updatePayload: any = {
+            pharmacyId: editingPharmacy._id, // Always ensure pharmacyId is set correctly
+          };
+          if (pharmacyForm.email) updatePayload.email = pharmacyForm.email;
+          if (pharmacyForm.password && pharmacyForm.password.trim() !== "") {
+            updatePayload.password = pharmacyForm.password;
+          }
+          if (pharmacyForm.name) updatePayload.name = pharmacyForm.name;
+
+          const userRes = await fetch(`${API_BASE}/api/users/${existingUser._id || existingUser.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(updatePayload),
+          });
+
+          if (!userRes.ok) {
+            const error = await userRes.json().catch(() => ({}));
+            toast.error("Pharmacy updated but failed to update login credentials: " + (error.message || "Unknown error"));
+          } else {
+            toast.success("Pharmacy and login credentials updated successfully!");
+          }
         } else {
-          toast.success("Pharmacy and login credentials updated successfully!");
+          // Create new user if doesn't exist - ensure it's linked to THIS pharmacy
+          if (pharmacyForm.email && pharmacyForm.password) {
+            // Check if email already exists for another pharmacy
+            try {
+              const checkUserRes = await fetch(`${API_BASE}/api/users?role=PHARMACY_STAFF`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (checkUserRes.ok) {
+                const allUsers = await checkUserRes.json();
+                const userList = Array.isArray(allUsers) ? allUsers : (allUsers.users || []);
+                const emailExists = userList.find((u: any) => 
+                  u.email === pharmacyForm.email && 
+                  u.pharmacyId && 
+                  String(u.pharmacyId) !== String(editingPharmacy._id)
+                );
+                if (emailExists) {
+                  toast.error(`This email is already used by another pharmacy. Please use a different email.`);
+                  return;
+                }
+              }
+            } catch (e) {
+              console.error("Error checking existing email:", e);
+            }
+
+            const userRes = await fetch(`${API_BASE}/api/users/signup`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                name: pharmacyForm.name,
+                email: pharmacyForm.email,
+                password: pharmacyForm.password,
+                role: "PHARMACY_STAFF",
+                pharmacyId: editingPharmacy._id, // Ensure it's linked to THIS pharmacy
+              }),
+            });
+
+            if (!userRes.ok) {
+              const error = await userRes.json().catch(() => ({}));
+              toast.error("Pharmacy updated but failed to create login credentials: " + (error.message || "Unknown error"));
+            } else {
+              toast.success("Pharmacy and login credentials created successfully!");
+            }
+          } else {
+            toast.error("Email and password are required to create new login credentials");
+          }
         }
       } else {
         toast.success("Pharmacy updated successfully!");
@@ -191,6 +310,15 @@ export default function PharmacyManagementPage() {
 
       const updated = await pharmacyRes.json();
       setPharmacies((prev) => prev.map((p) => (p._id === editingPharmacy._id ? updated : p)));
+      
+      // Refresh pharmacy user IDs after updating credentials
+      if (pharmacyForm.email || pharmacyForm.password) {
+        // Trigger a refresh of pharmacy user map
+        const map = new Map(pharmacyUserMap);
+        // The useEffect will automatically refresh when pharmacies change
+        setPharmacyUserMap(map);
+      }
+      
       setPharmacyForm({ name: "", address: "", phone: "", email: "", password: "", distributorId: "" });
       setShowEditModal(false);
       setEditingPharmacy(null);
@@ -232,24 +360,27 @@ export default function PharmacyManagementPage() {
     setShowEditModal(true);
     setShowEditPassword(false);
 
-    // Fetch existing user email for this pharmacy
+    // Fetch existing user email for THIS SPECIFIC pharmacy
     if (token) {
       try {
-        const userRes = await fetch(`${API_BASE}/api/users?pharmacyId=${pharmacy._id}&role=PHARMACY_STAFF`, {
+        // Fetch all pharmacy staff users and filter by pharmacyId
+        const userRes = await fetch(`${API_BASE}/api/users?role=PHARMACY_STAFF`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (userRes.ok) {
           const users = await userRes.json();
           // Handle both array and object responses
           const userList = Array.isArray(users) ? users : (users.users || []);
-          if (userList.length > 0) {
-            const pharmacyUser = userList[0];
-            if (pharmacyUser && pharmacyUser.email) {
-              setPharmacyForm(prev => ({
-                ...prev,
-                email: pharmacyUser.email
-              }));
-            }
+          // Find user for THIS SPECIFIC pharmacy
+          const pharmacyUser = userList.find((u: any) => 
+            (u.pharmacyId === pharmacy._id) || 
+            (String(u.pharmacyId) === String(pharmacy._id))
+          );
+          if (pharmacyUser && pharmacyUser.email) {
+            setPharmacyForm(prev => ({
+              ...prev,
+              email: pharmacyUser.email
+            }));
           }
         }
       } catch (e) {
@@ -302,64 +433,100 @@ export default function PharmacyManagementPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {pharmacies.map((p, idx) => (
-            <AnimatedCard key={p._id} delay={idx * 0.1}>
-              <div className="p-6 border border-gray-300 rounded-lg bg-white hover:shadow-md transition-all">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
-                      <PharmacyIcon className="w-6 h-6 text-blue-900" />
+          {pharmacies.map((p, idx) => {
+            const userId = pharmacyUserMap.get(p._id);
+            const isOnline = userId ? getStatus(userId) : false;
+            return (
+              <motion.div
+                key={p._id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1, duration: 0.4 }}
+                className="p-5 border border-blue-200 rounded-lg bg-white hover:shadow-md transition-all"
+              >
+                  {/* Header Section */}
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
+                        <PharmacyIcon className="w-6 h-6 text-blue-700" />
+                      </div>
+                      {/* Online Status Indicator */}
+                      <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                        isOnline ? 'bg-green-500' : 'bg-gray-400'
+                      }`} title={isOnline ? 'Online' : 'Offline'} />
                     </div>
-                    <div>
-                      <h3 className="font-bold text-lg text-gray-900">{p.name}</h3>
-                      <p className="text-xs text-gray-500">ID: {p._id.slice(-8)}</p>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-base text-gray-900 mb-2">{p.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                          isOnline 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {isOnline ? 'Active' : 'Inactive'}
+                        </span>
+                        <span className="text-xs text-gray-400">#{p._id.slice(-8)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400">📍</span>
-                    <p className="text-sm text-gray-600 flex-1">{p.address}</p>
+                  
+                  {/* Details Section */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-start gap-2">
+                      <span className="text-pink-500 text-base">📍</span>
+                      <p className="text-sm text-gray-600 flex-1">{p.address}</p>
+                    </div>
+                    {p.phone && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-pink-500 text-base">📞</span>
+                        <p className="text-sm text-gray-600">{p.phone}</p>
+                      </div>
+                    )}
+                    {p.distributorId && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-orange-500 text-base">🚚</span>
+                        <p className="text-sm text-gray-600">
+                          Linked to: {distributors.find(d => d._id === p.distributorId)?.name || `Distributor ${p.distributorId.slice(-8)}`}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  {p.phone && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">📞</span>
-                      <p className="text-sm text-gray-600">{p.phone}</p>
-                    </div>
-                  )}
-                  {p.distributorId && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">🚚</span>
-                      <p className="text-sm text-gray-600">
-                        Linked to: {distributors.find(d => d._id === p.distributorId)?.name || `Distributor ${p.distributorId.slice(-8)}`}
-                      </p>
-                    </div>
-                  )}
-                </div>
 
-                <div className="flex gap-2 pt-4 border-t border-gray-100">
-                  <motion.button
-                    onClick={() => openEditModal(p)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="flex-1 px-3 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-2"
-                  >
-                    <EditIcon className="w-4 h-4" />
-                    <span>Edit</span>
-                  </motion.button>
-                  <motion.button
-                    onClick={() => deletePharmacy(p._id)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
-                  >
-                    <DeleteIcon className="w-4 h-4" />
-                  </motion.button>
-                </div>
-              </div>
-            </AnimatedCard>
-          ))}
+                  {/* Action Buttons */}
+                  <div className="flex gap-2 pt-3 border-t border-gray-100">
+                    <motion.button
+                      onClick={() => {
+                        setViewingPharmacy(p);
+                        setShowViewModal(true);
+                      }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex-1 px-3 py-2 rounded bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <EyeIcon className="w-4 h-4" />
+                      <span>View</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => openEditModal(p)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex-1 px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <EditIcon className="w-4 h-4" />
+                      <span>Edit</span>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => deletePharmacy(p._id)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="px-3 py-2 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
+                    >
+                      <DeleteIcon className="w-4 h-4" />
+                    </motion.button>
+                  </div>
+              </motion.div>
+            );
+          })}
           
           {pharmacies.length === 0 && (
             <div className="col-span-full text-center py-12">
@@ -518,6 +685,128 @@ export default function PharmacyManagementPage() {
         </div>
       )}
 
+      {/* View Pharmacy Modal */}
+      {showViewModal && viewingPharmacy && (
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Pharmacy Details</h2>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewingPharmacy(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Header Section */}
+              <div className="flex items-center gap-4 pb-4 border-b border-gray-200">
+                <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200 relative">
+                  <PharmacyIcon className="w-8 h-8 text-blue-900" />
+                  {(() => {
+                    const userId = pharmacyUserMap.get(viewingPharmacy._id);
+                    const isOnline = userId ? getStatus(userId) : false;
+                    return (
+                      <div className={`absolute -top-1 -right-1 w-5 h-5 rounded-full border-2 border-white ${
+                        isOnline ? 'bg-green-500' : 'bg-gray-400'
+                      }`} title={isOnline ? 'Online' : 'Offline'} />
+                    );
+                  })()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-xl font-bold text-gray-900">{viewingPharmacy.name}</h3>
+                    {(() => {
+                      const userId = pharmacyUserMap.get(viewingPharmacy._id);
+                      const isOnline = userId ? getStatus(userId) : false;
+                      return (
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                          isOnline 
+                            ? 'bg-green-100 text-green-700 border border-green-200' 
+                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                        }`}>
+                          {isOnline ? 'Active' : 'Inactive'}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <p className="text-sm text-gray-500">ID: {viewingPharmacy._id.slice(-8)}</p>
+                </div>
+              </div>
+
+              {/* Details Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Address</label>
+                  <div className="flex items-start gap-2">
+                    <span className="text-red-500 text-lg mt-0.5">📍</span>
+                    <p className="text-sm text-gray-900 flex-1">{viewingPharmacy.address}</p>
+                  </div>
+                </div>
+
+                {viewingPharmacy.phone && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pink-500 text-lg">📞</span>
+                      <p className="text-sm text-gray-900 font-medium">{viewingPharmacy.phone}</p>
+                    </div>
+                  </div>
+                )}
+
+                {viewingPharmacy.distributorId && (
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Linked Distributor</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-orange-500 text-lg">🚚</span>
+                      <p className="text-sm text-gray-900">
+                        {distributors.find(d => d._id === viewingPharmacy.distributorId)?.name || `Distributor ${viewingPharmacy.distributorId.slice(-8)}`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <motion.button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setViewingPharmacy(null);
+                    openEditModal(viewingPharmacy);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex-1 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
+                >
+                  <EditIcon className="w-4 h-4" />
+                  <span>Edit Pharmacy</span>
+                </motion.button>
+                <motion.button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setViewingPharmacy(null);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+                >
+                  Close
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Edit Pharmacy Modal */}
       {showEditModal && editingPharmacy && (
         <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -591,11 +880,12 @@ export default function PharmacyManagementPage() {
               </div>
 
               <div className="pt-4 border-t border-gray-300">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Login Credentials</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Update Login Credentials</h3>
+                <p className="text-xs text-gray-600 mb-4">You can update email and/or password. Leave fields empty to keep existing values.</p>
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Email
+                      Email (Login ID)
                     </label>
                     <input
                       type="email"
@@ -605,7 +895,7 @@ export default function PharmacyManagementPage() {
                       className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
                       placeholder="pharmacy@example.com"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Leave empty to keep existing credentials</p>
+                    <p className="text-xs text-gray-500 mt-1">Enter new email to update login ID. Leave empty to keep existing email.</p>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -619,6 +909,7 @@ export default function PharmacyManagementPage() {
                         onChange={(e) => setPharmacyForm({ ...pharmacyForm, password: e.target.value })}
                         className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
                         placeholder="Enter new password (leave empty to keep existing)"
+                        minLength={6}
                       />
                       <button
                         type="button"
@@ -633,7 +924,7 @@ export default function PharmacyManagementPage() {
                         )}
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">Minimum 6 characters - Leave empty to keep existing password</p>
+                    <p className="text-xs text-gray-500 mt-1">Minimum 6 characters. Leave empty to keep existing password.</p>
                   </div>
                 </div>
               </div>

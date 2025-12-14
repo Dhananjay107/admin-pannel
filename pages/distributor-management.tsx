@@ -3,8 +3,8 @@ import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import Layout from "../components/Layout";
-import AnimatedCard from "../components/AnimatedCard";
 import { DistributorIcon, PlusIcon, EditIcon, DeleteIcon, EyeIcon, EyeOffIcon } from "../components/Icons";
+import { useUserStatus } from "../hooks/useUserStatus";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4000";
 
@@ -17,7 +17,9 @@ export default function DistributorManagementPage() {
   const [distributors, setDistributors] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [editingDistributor, setEditingDistributor] = useState<any>(null);
+  const [viewingDistributor, setViewingDistributor] = useState<any>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
   
@@ -31,6 +33,39 @@ export default function DistributorManagementPage() {
   });
   
   const [loading, setLoading] = useState(true);
+
+  // Get distributor user IDs for status tracking
+  const [distributorUserMap, setDistributorUserMap] = useState<Map<string, string>>(new Map());
+  
+  useEffect(() => {
+    // Fetch distributor user IDs
+    const fetchDistributorUserIds = async () => {
+      if (!token || distributors.length === 0) return;
+      try {
+        const map = new Map<string, string>();
+        for (const distributor of distributors) {
+          const userRes = await fetch(`${API_BASE}/api/users?distributorId=${distributor._id}&role=DISTRIBUTOR`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (userRes.ok) {
+            const users = await userRes.json();
+            const userList = Array.isArray(users) ? users : (users.users || []);
+            if (userList.length > 0) {
+              const userId = userList[0]._id || userList[0].id;
+              map.set(distributor._id, userId);
+            }
+          }
+        }
+        setDistributorUserMap(map);
+      } catch (e) {
+        console.error("Failed to fetch distributor user IDs:", e);
+      }
+    };
+    fetchDistributorUserIds();
+  }, [distributors, token]);
+
+  const distributorUserIds = Array.from(distributorUserMap.values());
+  const { getStatus } = useUserStatus(distributorUserIds);
 
   useEffect(() => {
     const storedUser = typeof window !== "undefined" ? localStorage.getItem("user") : null;
@@ -286,56 +321,89 @@ export default function DistributorManagementPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {distributors.map((d, idx) => (
-            <AnimatedCard key={d._id} delay={idx * 0.1}>
-              <div className="p-6 border border-gray-300 rounded-lg bg-white hover:shadow-md transition-all">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
+          {distributors.map((d, idx) => {
+            const userId = distributorUserMap.get(d._id);
+            const isOnline = userId ? getStatus(userId) : false;
+            return (
+              <motion.div
+                key={d._id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1, duration: 0.4 }}
+                className="p-5 border border-blue-200 rounded-lg bg-white hover:shadow-md transition-all"
+              >
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="relative flex-shrink-0">
                     <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200">
-                      <DistributorIcon className="w-6 h-6 text-blue-900" />
+                      <DistributorIcon className="w-6 h-6 text-blue-700" />
                     </div>
-                    <div>
-                      <h3 className="font-bold text-lg text-gray-900">{d.name}</h3>
-                      <p className="text-xs text-gray-500">ID: {d._id.slice(-8)}</p>
+                    {/* Online Status Indicator */}
+                    <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                      isOnline ? 'bg-green-500' : 'bg-gray-400'
+                    }`} title={isOnline ? 'Online' : 'Offline'} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-bold text-base text-gray-900 mb-2">{d.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                        isOnline 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {isOnline ? 'Active' : 'Inactive'}
+                      </span>
+                      <span className="text-xs text-gray-400">#{d._id.slice(-8)}</span>
                     </div>
                   </div>
                 </div>
                 
                 <div className="space-y-2 mb-4">
                   <div className="flex items-start gap-2">
-                    <span className="text-gray-400">📍</span>
+                    <span className="text-pink-500 text-base">📍</span>
                     <p className="text-sm text-gray-600 flex-1">{d.address}</p>
                   </div>
                   {d.phone && (
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-400">📞</span>
+                      <span className="text-pink-500 text-base">📞</span>
                       <p className="text-sm text-gray-600">{d.phone}</p>
                     </div>
                   )}
                 </div>
 
-                <div className="flex gap-2 pt-4 border-t border-gray-100">
+                <div className="flex gap-2 pt-3 border-t border-gray-100">
+                  <motion.button
+                    onClick={() => {
+                      setViewingDistributor(d);
+                      setShowViewModal(true);
+                    }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="flex-1 px-3 py-2 rounded bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <EyeIcon className="w-4 h-4" />
+                    <span>View</span>
+                  </motion.button>
                   <motion.button
                     onClick={() => openEditModal(d)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="flex-1 px-3 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-2"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="flex-1 px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
                   >
                     <EditIcon className="w-4 h-4" />
                     <span>Edit</span>
                   </motion.button>
                   <motion.button
                     onClick={() => deleteDistributor(d._id)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="px-3 py-2 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
                   >
                     <DeleteIcon className="w-4 h-4" />
                   </motion.button>
                 </div>
-              </div>
-            </AnimatedCard>
-          ))}
+              </motion.div>
+            );
+          })}
           
           {distributors.length === 0 && (
             <div className="col-span-full text-center py-12">
@@ -471,6 +539,116 @@ export default function DistributorManagementPage() {
                 </button>
               </div>
             </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* View Distributor Modal */}
+      {showViewModal && viewingDistributor && (
+        <div className="fixed inset-0 bg-gray-900/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900">Distributor Details</h2>
+              <button
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewingDistributor(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Header Section */}
+              <div className="flex items-center gap-4 pb-4 border-b border-gray-200">
+                <div className="w-16 h-16 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-200 relative">
+                  <DistributorIcon className="w-8 h-8 text-blue-700" />
+                  {(() => {
+                    const userId = distributorUserMap.get(viewingDistributor._id);
+                    const isOnline = userId ? getStatus(userId) : false;
+                    return (
+                      <div className={`absolute -top-1 -right-1 w-5 h-5 rounded-full border-2 border-white ${
+                        isOnline ? 'bg-green-500' : 'bg-gray-400'
+                      }`} />
+                    );
+                  })()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-xl font-bold text-gray-900">{viewingDistributor.name}</h3>
+                    {(() => {
+                      const userId = distributorUserMap.get(viewingDistributor._id);
+                      const isOnline = userId ? getStatus(userId) : false;
+                      return (
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                          isOnline
+                            ? 'bg-green-100 text-green-700 border border-green-200'
+                            : 'bg-gray-100 text-gray-600 border border-gray-200'
+                        }`}>
+                          {isOnline ? 'Active' : 'Inactive'}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <p className="text-sm text-gray-500">ID: #{viewingDistributor._id.slice(-8)}</p>
+                </div>
+              </div>
+
+              {/* Details Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Address</label>
+                  <div className="flex items-start gap-2">
+                    <span className="text-pink-500 text-lg mt-0.5">📍</span>
+                    <p className="text-sm text-gray-900 flex-1">{viewingDistributor.address}</p>
+                  </div>
+                </div>
+
+                {viewingDistributor.phone && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-pink-500 text-lg">📞</span>
+                      <p className="text-sm text-gray-900 font-medium">{viewingDistributor.phone}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <motion.button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setViewingDistributor(null);
+                    openEditModal(viewingDistributor);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="flex-1 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all flex items-center justify-center gap-2"
+                >
+                  <EditIcon className="w-4 h-4" />
+                  <span>Edit Distributor</span>
+                </motion.button>
+                <motion.button
+                  onClick={() => {
+                    setShowViewModal(false);
+                    setViewingDistributor(null);
+                  }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-all"
+                >
+                  Close
+                </motion.button>
+              </div>
+            </div>
           </motion.div>
         </div>
       )}
