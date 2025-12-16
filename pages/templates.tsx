@@ -453,7 +453,7 @@ export default function TemplatesPage() {
     }
 
     // Add default values from template variables
-    const vars = template?.variables || newTemplate.variables || [];
+    const vars = template?.variables || [];
     vars.forEach((v: any) => {
       if (v.defaultValue && !sampleData[v.key]) {
         sampleData[v.key] = v.defaultValue;

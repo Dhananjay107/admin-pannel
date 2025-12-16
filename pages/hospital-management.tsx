@@ -216,7 +216,8 @@ export default function HospitalManagementPage() {
                   registrationNumber: "",
                   type: "Clinic",
                   establishedYear: "",
-                  description: ""
+                  description: "",
+                  registrationCharge: ""
                 });
                 setShowAddModal(true);
               }}

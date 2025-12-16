@@ -149,10 +149,15 @@ export default function DashboardPage() {
         if (e.message?.includes("Failed to fetch") || e.message?.includes("ERR_CONNECTION_REFUSED")) {
           // Backend is not running, show user-friendly message
           if (loading) {
-            toast.error("Cannot connect to backend server", {
-              description: "Please make sure the backend server is running on port 4000",
-              duration: 5000,
-            });
+            toast.error(
+              <div>
+                <div className="font-semibold">Cannot connect to backend server</div>
+                <div className="text-sm text-gray-600 mt-1">Please make sure the backend server is running on port 4000</div>
+              </div>,
+              {
+                duration: 5000,
+              }
+            );
           }
         } else {
           console.error(e);
@@ -182,10 +187,15 @@ export default function DashboardPage() {
           // Show toast for new activities (only if not initial load)
           if (previousActivityIdsRef.current.size > 0 && newActivities.length > 0) {
             newActivities.forEach((activity: any) => {
-              toast.success(activity.title, {
-                description: activity.description,
-                duration: 3000,
-              });
+              toast.success(
+                <div>
+                  <div className="font-semibold">{activity.title}</div>
+                  <div className="text-sm text-gray-600 mt-1">{activity.description}</div>
+                </div>,
+                {
+                  duration: 3000,
+                }
+              );
             });
             // Refresh stats when new activity arrives
             fetchStats();

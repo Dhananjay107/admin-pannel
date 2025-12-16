@@ -67,10 +67,15 @@ export default function OrdersPage() {
       setPatients(patientsRes.ok ? await patientsRes.json() : []);
     } catch (e) {
       if (!connectionErrorShownRef.current) {
-        toast.error("Cannot connect to backend server", {
-          description: "Please make sure the backend server is running on port 4000",
-          duration: 5000,
-        });
+        toast.error(
+          <div>
+            <div className="font-semibold">Cannot connect to backend server</div>
+            <div className="text-sm text-gray-600 mt-1">Please make sure the backend server is running on port 4000</div>
+          </div>,
+          {
+            duration: 5000,
+          }
+        );
         connectionErrorShownRef.current = true;
       }
     } finally {
@@ -101,10 +106,15 @@ export default function OrdersPage() {
         // Show toast for new pending orders (only if not initial load and not polling)
         if (!isPolling && previousOrderIdsRef.current.size > 0 && newPendingOrders.length > 0) {
           newPendingOrders.forEach((order: any) => {
-            toast.success("📦 New Order Received!", {
-              description: `Order #${order._id.slice(-8)} is waiting for approval`,
-              duration: 5000,
-            });
+            toast.success(
+              <div>
+                <div className="font-semibold">📦 New Order Received!</div>
+                <div className="text-sm text-gray-600 mt-1">Order #{order._id.slice(-8)} is waiting for approval</div>
+              </div>,
+              {
+                duration: 5000,
+              }
+            );
           });
         }
         
@@ -121,10 +131,15 @@ export default function OrdersPage() {
       // Only show error on initial load, not during polling
       if (!isPolling && !connectionErrorShownRef.current) {
         if (e.message?.includes("Failed to fetch") || e.message?.includes("ERR_CONNECTION_REFUSED")) {
-          toast.error("Cannot connect to backend server", {
-            description: "Please make sure the backend server is running on port 4000",
-            duration: 5000,
-          });
+          toast.error(
+            <div>
+              <div className="font-semibold">Cannot connect to backend server</div>
+              <div className="text-sm text-gray-600 mt-1">Please make sure the backend server is running on port 4000</div>
+            </div>,
+            {
+              duration: 5000,
+            }
+          );
           connectionErrorShownRef.current = true;
         } else {
           toast.error("Failed to load orders");
