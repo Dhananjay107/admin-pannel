@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getSocket, initializeSocket, onSocketEvent, offSocketEvent } from "../services/socket";
+import { getSocket, onSocketEvent, offSocketEvent } from "../services/socket";
 
 interface UserStatus {
   [userId: string]: boolean; // true = online, false = offline
@@ -16,7 +16,7 @@ export function useUserStatus(userIds: string[] = []) {
   // Fetch initial online users
   const fetchOnlineUsers = useCallback(async () => {
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (!token) {
         // No token - user not logged in, silently return
@@ -94,7 +94,7 @@ export function useUserStatus(userIds: string[] = []) {
     // Initialize socket if not already initialized
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
-      initializeSocket(token);
+      // Socket is already initialized in _app.tsx, no need to initialize again
     }
 
     // Fetch initial status ONCE on mount (only if socket is not available)

@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 interface Doctor {
   _id: string;
@@ -13,12 +13,12 @@ interface Doctor {
   specialization: string;
   qualification?: string;
   serviceCharge?: number;
+  hospitalId?: string;
 }
 
 export default function PatientDetailsPage() {
   const router = useRouter();
-  
-  // Debug: Log when component mounts
+
   useEffect(() => {
     console.log("Patient Details Page Loaded");
     if (typeof window !== "undefined") {
@@ -28,6 +28,9 @@ export default function PatientDetailsPage() {
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>("");
   const [consultationType, setConsultationType] = useState<"Offline" | "Online">("Offline");
+  const [patients, setPatients] = useState<any[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState<string>("");
+  const [useNewPatient, setUseNewPatient] = useState<boolean>(false);
   const [patientForm, setPatientForm] = useState({
     name: "",
     age: "",
@@ -35,6 +38,7 @@ export default function PatientDetailsPage() {
     issue: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [loadingPatients, setLoadingPatients] = useState(false);
 
   useEffect(() => {
     // Get selected doctor and time slot from sessionStorage
@@ -58,8 +62,31 @@ export default function PatientDetailsPage() {
       if (consultation) {
         setConsultationType(consultation as "Offline" | "Online");
       }
+      
+      // Fetch patients list
+      fetchPatients();
     }
   }, [router]);
+
+  const fetchPatients = async () => {
+    setLoadingPatients(true);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_BASE}/api/users?role=PATIENT`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      
+      if (res.ok) {
+        const patientsData = await res.json();
+        setPatients(Array.isArray(patientsData) ? patientsData : []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch patients:", error);
+      toast.error("Failed to load patients list");
+    } finally {
+      setLoadingPatients(false);
+    }
+  };
 
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,20 +104,54 @@ export default function PatientDetailsPage() {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
 
-      // Create appointment date with selected time slot
+      // Get patient ID - use selected patient or create new one
+      let patientId = "";
+      
+      if (useNewPatient) {
+        // For new patient, we need to create them first or use a placeholder
+        // Check if patient with same name exists
+        const matchingPatient = patients.find((p: any) => 
+          p.name?.toLowerCase() === patientForm.name.toLowerCase()
+        );
+        
+        if (matchingPatient) {
+          patientId = matchingPatient._id || matchingPatient.id;
+          toast.success("Using existing patient with same name");
+        } else {
+          // For now, we'll require creating patient first
+          toast.error("Please create the patient in Users section first, or select an existing patient.");
+          return;
+        }
+      } else {
+        // Use selected patient
+        if (!selectedPatientId) {
+          toast.error("Please select a patient or choose 'New Patient' option");
+          return;
+        }
+        patientId = selectedPatientId;
+      }
+
+      // Create appointment date with selected time slot (use today's date)
       const appointmentDate = new Date();
       const [hours, minutes] = selectedTimeSlot.split(":");
       appointmentDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+      
+      // Ensure date is today or future
+      const today = new Date();
+      if (appointmentDate < today) {
+        appointmentDate.setDate(today.getDate() + 1); // Set to tomorrow if time has passed
+      }
 
       const appointmentData = {
+        hospitalId: selectedDoctor.hospitalId || "", // Use doctor's hospital or empty
         doctorId: selectedDoctor._id,
+        patientId: patientId,
+        scheduledAt: appointmentDate.toISOString(),
         patientName: patientForm.name,
-        patientAge: parseInt(patientForm.age),
-        patientAddress: patientForm.address,
+        age: parseInt(patientForm.age),
+        address: patientForm.address,
         issue: patientForm.issue,
-        appointmentDate: appointmentDate.toISOString(),
-        consultationType: consultationType,
-        status: "PENDING",
+        channel: consultationType === "Online" ? "VIDEO" : "PHYSICAL",
       };
 
       const res = await fetch(`${API_BASE}/api/appointments`, {
@@ -188,17 +249,79 @@ export default function PatientDetailsPage() {
           </div>
 
           <form onSubmit={handleBookAppointment} className="space-y-6">
+            {/* Patient Selection */}
             <div>
               <label className="text-gray-300 text-sm font-medium mb-2 block">
-                Name <span className="text-red-400">*</span>
+                Select Patient <span className="text-red-400">*</span>
+              </label>
+              <div className="mb-3">
+                <label className="flex items-center gap-2 text-gray-300 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={!useNewPatient}
+                    onChange={() => setUseNewPatient(false)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span>Existing Patient</span>
+                </label>
+                <label className="flex items-center gap-2 text-gray-300 cursor-pointer ml-6">
+                  <input
+                    type="radio"
+                    checked={useNewPatient}
+                    onChange={() => setUseNewPatient(true)}
+                    className="w-4 h-4 text-blue-600"
+                  />
+                  <span>New Patient (create in Users section first)</span>
+                </label>
+              </div>
+              
+              {!useNewPatient ? (
+                <select
+                  required={!useNewPatient}
+                  value={selectedPatientId}
+                  onChange={(e) => {
+                    setSelectedPatientId(e.target.value);
+                    const patient = patients.find(p => (p._id || p.id) === e.target.value);
+                    if (patient) {
+                      setPatientForm({
+                        name: patient.name || "",
+                        age: "",
+                        address: "",
+                        issue: "",
+                      });
+                    }
+                  }}
+                  className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  disabled={loadingPatients}
+                >
+                  <option value="">Select a patient...</option>
+                  {patients.map((patient) => (
+                    <option key={patient._id || patient.id} value={patient._id || patient.id}>
+                      {patient.name} {patient.email ? `(${patient.email})` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <p className="text-yellow-300 text-sm">
+                    ⚠️ For new patients, please create them in the Users section first, then return here to book.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-gray-300 text-sm font-medium mb-2 block">
+                Patient Name <span className="text-red-400">*</span>
               </label>
               <input
                 type="text"
                 required
                 value={patientForm.name}
                 onChange={(e) => setPatientForm({ ...patientForm, name: e.target.value })}
-                placeholder="Enter your full name"
+                placeholder="Enter patient full name"
                 className="w-full px-4 py-3 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                disabled={!useNewPatient && selectedPatientId !== ""}
               />
             </div>
 

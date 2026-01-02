@@ -6,7 +6,7 @@ import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import { OrdersIcon } from "../components/Icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 type OrderStatus = "PENDING" | "ORDER_RECEIVED" | "MEDICINE_RECEIVED" | "SENT_TO_PHARMACY" | "ACCEPTED" | "PACKED" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 

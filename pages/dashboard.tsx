@@ -17,7 +17,7 @@ import {
   RevenueIcon,
 } from "../components/Icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 interface User {
   id: string;

@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import toast, { Toaster } from "react-hot-toast";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+import { buildApiUrl } from "../lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,7 +22,7 @@ export default function LoginPage() {
     }
     setCheckingRole(true);
     try {
-      const res = await fetch(`${API_BASE}/api/users/check-role/${encodeURIComponent(emailValue)}`);
+      const res = await fetch(buildApiUrl(`/api/users/check-role/${encodeURIComponent(emailValue)}`));
       if (res.ok) {
         const data = await res.json();
         setIsAdminLogin(data.isAdmin && data.exists && data.isActive);
@@ -56,7 +55,7 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/users/login`, {
+      const res = await fetch(buildApiUrl("/api/users/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),

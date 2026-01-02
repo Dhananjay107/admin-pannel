@@ -5,7 +5,7 @@ import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import StatCard from "../components/StatCard";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 export default function DistributorsPage() {
   const router = useRouter();

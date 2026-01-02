@@ -5,8 +5,9 @@ import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import { DoctorIcon, PlusIcon, EditIcon, DeleteIcon, ClockIcon } from "../components/Icons";
+import { getSocket, onSocketEvent, offSocketEvent } from "../services/socket";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 const DAYS_OF_WEEK = [
   { value: "monday", label: "Monday" },
@@ -53,6 +54,35 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!token) return;
     fetchData();
+    
+    // Socket is already initialized in _app.tsx, no need to initialize again
+  }, [token]);
+  
+  // Listen for real-time slot updates
+  useEffect(() => {
+    if (!token) return;
+    
+    const socket = getSocket();
+    if (!socket) return;
+    
+    const handleSlotUpdate = () => {
+      // Refresh schedules and slots when updated
+      fetchData();
+    };
+    
+    const handleSlotsGenerated = (data: any) => {
+      // Refresh when slots are generated
+      fetchData();
+      toast.success(`Slots generated for doctor: ${data.count} slots`);
+    };
+    
+    onSocketEvent("slot:updated", handleSlotUpdate);
+    onSocketEvent("slots:generated", handleSlotsGenerated);
+    
+    return () => {
+      offSocketEvent("slot:updated", handleSlotUpdate);
+      offSocketEvent("slots:generated", handleSlotsGenerated);
+    };
   }, [token]);
 
   const fetchData = async () => {
@@ -184,15 +214,24 @@ export default function SchedulesPage() {
         }),
       });
 
+      const data = await res.json().catch(() => ({ message: "Failed to generate slots" }));
+
       if (res.ok) {
-        const data = await res.json();
-        toast.success(`Generated ${data.count || 0} slots successfully!`);
+        if (data.count === 0) {
+          toast.error(
+            data.message ||
+              "No slots were generated. Please ensure the doctor has active schedules configured for the selected days."
+          );
+        } else {
+          toast.success(`Generated ${data.count} slots successfully!`);
+        }
       } else {
-        const error = await res.json().catch(() => ({ message: "Failed to generate slots" }));
-        toast.error(error.message || "Failed to generate slots");
+        toast.error(data.message || "Failed to generate slots");
+        console.error("Slot generation error:", data);
       }
-    } catch (e) {
-      toast.error("Error generating slots");
+    } catch (e: any) {
+      console.error("Slot generation exception:", e);
+      toast.error(e.message || "Error generating slots. Please check your connection and try again.");
     }
   };
 

@@ -6,7 +6,7 @@ import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import { FinanceIcon, RevenueIcon, ExpenseIcon, ProfitIcon, ChartBarIcon, DownloadIcon, CalendarIcon, HospitalIcon, ClockIcon } from "../components/Icons";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 // Simple Line Chart Component
 const LineChart = ({ data, width = 400, height = 200, color = "#1e40af" }: any) => {

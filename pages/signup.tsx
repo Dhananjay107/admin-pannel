@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
 import { motion } from "framer-motion";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+import { buildApiUrl } from "../lib/api";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -17,8 +16,9 @@ export default function SignupPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    
     try {
-      const res = await fetch(`${API_BASE}/api/users/signup`, {
+      const res = await fetch(buildApiUrl("/api/users/signup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

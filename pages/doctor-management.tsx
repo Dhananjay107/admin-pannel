@@ -5,9 +5,8 @@ import toast from "react-hot-toast";
 import Layout from "../components/Layout";
 import { DoctorIcon, PlusIcon, EditIcon, DeleteIcon, ReportsIcon, TemplatesIcon, EyeIcon } from "../components/Icons";
 import { useUserStatus } from "../hooks/useUserStatus";
-import { initializeSocket } from "../services/socket";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://d-kjyc.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 
 export default function DoctorManagementPage() {
   const router = useRouter();
@@ -55,6 +54,7 @@ export default function DoctorManagementPage() {
   
   
   const [loading, setLoading] = useState(true);
+  const [operationLoading, setOperationLoading] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Get user IDs for status tracking
@@ -71,8 +71,7 @@ export default function DoctorManagementPage() {
     setUser(JSON.parse(storedUser));
     setToken(t);
     
-    // Initialize socket connection for real-time updates
-    initializeSocket(t);
+    // Socket is already initialized in _app.tsx, no need to initialize again
   }, [router]);
 
   useEffect(() => {
@@ -93,61 +92,70 @@ export default function DoctorManagementPage() {
     };
   }, [token, doctorIds, refreshStatus]);
 
+  const fetchDoctors = async () => {
+    if (!token) return;
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const doctorsRes = await fetch(`${API_BASE}/api/users?role=DOCTOR`, { headers });
+      if (doctorsRes.ok) {
+        const doctorsData = await doctorsRes.json();
+        setDoctors(doctorsData);
+      }
+    } catch (e) {
+      console.error("Failed to fetch doctors:", e);
+    }
+  };
+
   const fetchAllData = async () => {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}` };
-      const [doctorsRes, hospitalsRes, patientsRes, appointmentsRes, prescriptionsRes, financeRes] = await Promise.all([
+      const [doctorsRes, hospitalsRes] = await Promise.all([
         fetch(`${API_BASE}/api/users?role=DOCTOR`, { headers }),
         fetch(`${API_BASE}/api/master/hospitals`, { headers }),
-        fetch(`${API_BASE}/api/users?role=PATIENT`, { headers }),
-        fetch(`${API_BASE}/api/appointments`, { headers }),
-        fetch(`${API_BASE}/api/prescriptions`, { headers }),
-        fetch(`${API_BASE}/api/finance/summary`, { headers }),
       ]);
       
-      // Fetch payment history (verified payments)
-      const paymentHistoryRes = await fetch(`${API_BASE}/api/finance/summary?type=DOCTOR_COMMISSION`, { headers });
-      const paymentHistoryData = paymentHistoryRes.ok ? await paymentHistoryRes.json() : { entries: [] };
-      
       const doctorsData = doctorsRes.ok ? await doctorsRes.json() : [];
-      const appointmentsData = appointmentsRes.ok ? await appointmentsRes.json() : [];
-      const financeResponse = financeRes.ok ? await financeRes.json() : { entries: [] };
-      const financeData = financeResponse.entries || [];
-      
-      const prescriptionsData = prescriptionsRes.ok ? await prescriptionsRes.json() : [];
-      
       setDoctors(doctorsData);
       setHospitals(hospitalsRes.ok ? await hospitalsRes.json() : []);
-      setPatients(patientsRes.ok ? await patientsRes.json() : []);
-      setAppointments(appointmentsData);
-      setPrescriptions(prescriptionsData);
       
-      // Process revenue data
-      processRevenueData(doctorsData, appointmentsData, financeData, prescriptionsData);
-      
-      // Process payment history (verified payments) - remove duplicates
-      const verifiedPayments = financeData
-        .filter((f: any) => f.type === "DOCTOR_COMMISSION" && f.meta?.verified === true);
-      
-      // Remove duplicates based on finance entry ID and appointment ID
-      const uniquePayments = verifiedPayments.reduce((acc: any[], payment: any) => {
-        const existing = acc.find((p: any) => 
-          p._id === payment._id || 
-          (p.meta?.appointmentId === payment.meta?.appointmentId && 
-           p.doctorId === payment.doctorId &&
-           p.meta?.appointmentId)
+      // Fetch other data in background (non-blocking) - don't wait for it
+      Promise.all([
+        fetch(`${API_BASE}/api/users?role=PATIENT`, { headers }).then(r => r.ok ? r.json() : []),
+        fetch(`${API_BASE}/api/appointments`, { headers }).then(r => r.ok ? r.json() : []),
+        fetch(`${API_BASE}/api/prescriptions`, { headers }).then(r => r.ok ? r.json() : []),
+        fetch(`${API_BASE}/api/finance/summary`, { headers }).then(r => r.ok ? r.json() : { entries: [] }),
+      ]).then(([patientsData, appointmentsData, prescriptionsData, financeResponse]) => {
+        setPatients(patientsData);
+        setAppointments(appointmentsData);
+        setPrescriptions(prescriptionsData);
+        const financeData = financeResponse.entries || [];
+        
+        processRevenueData(doctorsData, appointmentsData, financeData, prescriptionsData);
+        
+        const verifiedPayments = financeData
+          .filter((f: any) => f.type === "DOCTOR_COMMISSION" && f.meta?.verified === true);
+        
+        const uniquePayments = verifiedPayments.reduce((acc: any[], payment: any) => {
+          const existing = acc.find((p: any) => 
+            p._id === payment._id || 
+            (p.meta?.appointmentId === payment.meta?.appointmentId && 
+             p.doctorId === payment.doctorId &&
+             p.meta?.appointmentId)
+          );
+          if (!existing) {
+            acc.push(payment);
+          }
+          return acc;
+        }, []);
+        
+        const sortedPayments = uniquePayments.sort((a: any, b: any) => 
+          new Date(b.meta?.verifiedAt || b.occurredAt).getTime() - new Date(a.meta?.verifiedAt || a.occurredAt).getTime()
         );
-        if (!existing) {
-          acc.push(payment);
-        }
-        return acc;
-      }, []);
-      
-      const sortedPayments = uniquePayments.sort((a: any, b: any) => 
-        new Date(b.meta?.verifiedAt || b.occurredAt).getTime() - new Date(a.meta?.verifiedAt || a.occurredAt).getTime()
-      );
-      setPaymentHistory(sortedPayments);
+        setPaymentHistory(sortedPayments);
+      }).catch(err => {
+        console.error("Background data fetch error:", err);
+      });
     } catch (e) {
       toast.error("Failed to fetch data");
     } finally {
@@ -295,6 +303,7 @@ export default function DoctorManagementPage() {
   const createDoctor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
+    setOperationLoading("create");
     try {
       const res = await fetch(`${API_BASE}/api/users/signup`, {
         method: "POST",
@@ -334,15 +343,17 @@ export default function DoctorManagementPage() {
       });
       setShowAddModal(false);
       toast.success("Doctor created successfully!");
-      fetchAllData();
     } catch (e: any) {
       toast.error(e.message || "Error creating doctor");
+    } finally {
+      setOperationLoading(null);
     }
   };
 
   const updateDoctor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !editingDoctor) return;
+    setOperationLoading(`update-${editingDoctor._id}`);
     try {
       const updateData: any = {
         name: doctorForm.name,
@@ -383,19 +394,53 @@ export default function DoctorManagementPage() {
         setShowEditModal(false);
         setEditingDoctor(null);
         toast.success("Doctor updated successfully!");
-        fetchAllData();
       } else {
         const error = await res.json().catch(() => ({}));
         toast.error(error.message || "Failed to update doctor");
       }
     } catch (e) {
       toast.error("Error updating doctor");
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const toggleDoctorStatus = async (doctor: any) => {
+    if (!token) return;
+    const newStatus = doctor.isActive !== false ? false : true;
+    const action = newStatus ? "enable" : "disable";
+    if (!confirm(`Are you sure you want to ${action} this doctor?`)) return;
+    
+    setOperationLoading(`toggle-${doctor._id}`);
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${doctor._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isActive: newStatus }),
+      });
+      
+      if (res.ok) {
+        const updated = await res.json();
+        setDoctors((prev) => prev.map((d) => (d._id === doctor._id ? updated : d)));
+        toast.success(`Doctor ${action}d successfully!`);
+      } else {
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.message || `Failed to ${action} doctor`);
+      }
+    } catch (e) {
+      toast.error(`Error ${action}ing doctor`);
+    } finally {
+      setOperationLoading(null);
     }
   };
 
   const deleteDoctor = async (id: string) => {
     if (!token) return;
     if (!confirm("Are you sure you want to delete this doctor?")) return;
+    setOperationLoading(`delete-${id}`);
     try {
       const res = await fetch(`${API_BASE}/api/users/${id}`, {
         method: "DELETE",
@@ -404,12 +449,14 @@ export default function DoctorManagementPage() {
       if (res.ok) {
         setDoctors((prev) => prev.filter((d) => d._id !== id));
         toast.success("Doctor deleted successfully!");
-        fetchAllData();
       } else {
-        toast.error("Failed to delete doctor");
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.message || "Failed to delete doctor");
       }
     } catch (e) {
       toast.error("Error deleting doctor");
+    } finally {
+      setOperationLoading(null);
     }
   };
 
@@ -826,13 +873,15 @@ export default function DoctorManagementPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-base text-gray-900 mb-2">{d.name}</h3>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
-                            isOnline 
+                            d.isActive !== false && isOnline
                               ? 'bg-green-100 text-green-700' 
+                              : d.isActive === false
+                              ? 'bg-red-100 text-red-700'
                               : 'bg-gray-100 text-gray-600'
                           }`}>
-                            {isOnline ? 'Active' : 'Inactive'}
+                            {d.isActive === false ? 'Disabled' : isOnline ? 'Active' : 'Inactive'}
                           </span>
                           <span className="text-xs text-gray-400">#{d._id.slice(-8)}</span>
                         </div>
@@ -887,18 +936,42 @@ export default function DoctorManagementPage() {
                         onClick={() => openEditModal(d)}
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        className="flex-1 px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5"
+                        disabled={operationLoading !== null}
+                        className="flex-1 px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-sm font-medium transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <EditIcon className="w-4 h-4" />
                     <span>Edit</span>
                   </motion.button>
                       <motion.button
+                        onClick={() => toggleDoctorStatus(d)}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        disabled={operationLoading !== null}
+                        className={`px-3 py-2 rounded text-sm font-medium transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${
+                          d.isActive !== false
+                            ? "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border border-yellow-200"
+                            : "bg-green-50 hover:bg-green-100 text-green-700 border border-green-200"
+                        }`}
+                        title={d.isActive !== false ? "Disable Doctor" : "Enable Doctor"}
+                      >
+                        {operationLoading === `toggle-${d._id}` ? (
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          d.isActive !== false ? "⏸️" : "▶️"
+                        )}
+                      </motion.button>
+                      <motion.button
                         onClick={() => deleteDoctor(d._id)}
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        className="px-3 py-2 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center"
+                        disabled={operationLoading !== null}
+                        className="px-3 py-2 rounded bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <DeleteIcon className="w-4 h-4" />
+                        {operationLoading === `delete-${d._id}` ? (
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <DeleteIcon className="w-4 h-4" />
+                        )}
                       </motion.button>
                     </div>
                   </motion.div>
@@ -1783,9 +1856,17 @@ export default function DoctorManagementPage() {
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
+                  disabled={operationLoading === "create"}
+                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Create Doctor
+                  {operationLoading === "create" ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Doctor"
+                  )}
                 </button>
                 <button
                   type="button"
@@ -1949,9 +2030,17 @@ export default function DoctorManagementPage() {
               <div className="flex gap-3 pt-4">
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all"
+                  disabled={operationLoading !== null}
+                  className="flex-1 px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg font-semibold shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Update Doctor
+                  {operationLoading === `update-${editingDoctor?._id}` ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    "Update Doctor"
+                  )}
                 </button>
                 <button
                   type="button"
