@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<any>(null);
+  const [branchStockData, setBranchStockData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPolling, setIsPolling] = useState(true);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
@@ -101,25 +102,67 @@ export default function DashboardPage() {
           usersRes.ok ? usersRes.json() : [],
         ]);
         
-        // Fetch inventory count from all pharmacies (aggregate count)
+        // Fetch inventory count and stock alerts from all pharmacies
         let inventoryCount = 0;
+        let branchStockData: any[] = [];
         try {
           if (Array.isArray(pharmacies) && pharmacies.length > 0) {
-            // Get inventory count from first pharmacy as sample, or aggregate if needed
-            const firstPharmacyId = pharmacies[0]?._id || pharmacies[0]?.id;
-            if (firstPharmacyId) {
-              const inventoryRes = await fetch(`${API_BASE}/api/inventory/by-pharmacy/${firstPharmacyId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (inventoryRes.ok) {
-                const inventoryData = await inventoryRes.json();
-                inventoryCount = Array.isArray(inventoryData) ? inventoryData.length : 0;
+            // Fetch inventory data for all pharmacies in parallel
+            const inventoryPromises = pharmacies.map(async (pharmacy: any) => {
+              const pharmacyId = pharmacy._id || pharmacy.id;
+              if (!pharmacyId) return null;
+              
+              try {
+                const [inventoryRes, expiryRiskRes, lowStockRes] = await Promise.all([
+                  fetch(`${API_BASE}/api/inventory/by-pharmacy/${pharmacyId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  }),
+                  fetch(`${API_BASE}/api/inventory/expiry-risk?pharmacyId=${pharmacyId}&days=30`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  }),
+                  fetch(`${API_BASE}/api/inventory/by-pharmacy/${pharmacyId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  }),
+                ]);
+                
+                const inventoryItems = inventoryRes.ok ? await inventoryRes.json() : [];
+                const expiryRisk = expiryRiskRes.ok ? await expiryRiskRes.json() : { riskItems: [], totalValue: 0 };
+                
+                // Calculate low stock items
+                const lowStockItems = Array.isArray(inventoryItems) 
+                  ? inventoryItems.filter((item: any) => item.quantity <= (item.threshold || 0))
+                  : [];
+                
+                // Calculate expired items
+                const today = new Date();
+                const expiredItems = Array.isArray(inventoryItems)
+                  ? inventoryItems.filter((item: any) => {
+                      if (!item.expiryDate) return false;
+                      return new Date(item.expiryDate) < today;
+                    })
+                  : [];
+                
+                return {
+                  pharmacyId,
+                  pharmacyName: pharmacy.name || "Unknown",
+                  totalItems: Array.isArray(inventoryItems) ? inventoryItems.length : 0,
+                  lowStockCount: lowStockItems.length,
+                  expiringSoonCount: expiryRisk.riskItems?.length || 0,
+                  expiredCount: expiredItems.length,
+                  totalValueAtRisk: expiryRisk.totalValue || 0,
+                };
+              } catch (err) {
+                console.warn(`Error fetching inventory for pharmacy ${pharmacyId}:`, err);
+                return null;
               }
-            }
+            });
+            
+            const results = await Promise.all(inventoryPromises);
+            branchStockData = results.filter(Boolean);
+            inventoryCount = branchStockData.reduce((sum, data) => sum + (data?.totalItems || 0), 0);
           }
         } catch (invError) {
-          // Silently handle inventory fetch errors - it's just for stats
-          console.warn("Could not fetch inventory count:", invError);
+          console.warn("Could not fetch inventory data:", invError);
         }
 
         // Calculate order stats
@@ -144,6 +187,7 @@ export default function DashboardPage() {
             ? users.filter((u: any) => u.role === "DOCTOR").length
             : 0,
         });
+        setBranchStockData(branchStockData);
       } catch (e: any) {
         // Silently handle connection errors (backend might be starting)
         if (e.message?.includes("Failed to fetch") || e.message?.includes("ERR_CONNECTION_REFUSED")) {
@@ -484,6 +528,109 @@ export default function DashboardPage() {
               <p className="text-xs text-gray-600">Net across all units</p>
             </motion.div>
           </div>
+
+          {/* Branch-wise Stock Visibility Section */}
+          {branchStockData.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.9 }}
+              className="mt-6 sm:mt-8 bg-white rounded-lg shadow-sm border border-gray-300 overflow-hidden"
+            >
+              <div className="p-4 sm:p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Branch Stock Visibility</h2>
+                    <p className="text-sm text-gray-600 mt-1">Real-time stock levels, expiry risks, and low-stock alerts per branch</p>
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Pharmacy Branch</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Total Items</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Low Stock</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Expiring Soon</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Expired</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">Value at Risk</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {branchStockData.map((branch, idx) => {
+                      const hasAlerts = branch.lowStockCount > 0 || branch.expiringSoonCount > 0 || branch.expiredCount > 0;
+                      return (
+                        <motion.tr
+                          key={branch.pharmacyId}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.95 + idx * 0.05 }}
+                          className={`hover:bg-gray-50 transition-colors ${
+                            hasAlerts ? "bg-yellow-50/50" : ""
+                          }`}
+                        >
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <div className="font-semibold text-sm text-gray-900">{branch.pharmacyName}</div>
+                            <div className="text-xs text-gray-500">ID: {branch.pharmacyId.slice(-8)}</div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-center">
+                            <span className="text-sm font-medium text-gray-900">{branch.totalItems}</span>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-center">
+                            {branch.lowStockCount > 0 ? (
+                              <span className="px-2 py-1 text-xs font-semibold bg-red-100 text-red-800 rounded-full">
+                                ⚠️ {branch.lowStockCount}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-500">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-center">
+                            {branch.expiringSoonCount > 0 ? (
+                              <span className="px-2 py-1 text-xs font-semibold bg-orange-100 text-orange-800 rounded-full">
+                                ⏰ {branch.expiringSoonCount}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-500">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-center">
+                            {branch.expiredCount > 0 ? (
+                              <span className="px-2 py-1 text-xs font-semibold bg-red-600 text-white rounded-full">
+                                ❌ {branch.expiredCount}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-500">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-right">
+                            {branch.totalValueAtRisk > 0 ? (
+                              <span className="text-sm font-semibold text-red-600">₹{branch.totalValueAtRisk.toFixed(2)}</span>
+                            ) : (
+                              <span className="text-xs text-gray-500">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-center">
+                            {hasAlerts ? (
+                              <span className="px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded-full">
+                                Alert
+                              </span>
+                            ) : (
+                              <span className="px-2 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded-full">
+                                OK
+                              </span>
+                            )}
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
         </>
       )}
     </Layout>

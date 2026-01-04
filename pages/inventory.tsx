@@ -20,6 +20,8 @@ export default function InventoryPage() {
     quantity: 0,
     threshold: 10,
     distributorId: "",
+    rackNumber: "",
+    rowNumber: "",
   });
   const [editingItem, setEditingItem] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -88,6 +90,8 @@ export default function InventoryPage() {
           quantity: 0,
           threshold: 10,
           distributorId: "",
+          rackNumber: "",
+          rowNumber: "",
         });
         toast.success(`Item ${editingItem ? "updated" : "added"} successfully!`);
         await fetchInventory(pharmacyId, token);
@@ -108,6 +112,8 @@ export default function InventoryPage() {
       quantity: item.quantity,
       threshold: item.threshold,
       distributorId: item.distributorId || "",
+      rackNumber: item.rackNumber || "",
+      rowNumber: item.rowNumber || "",
     });
   };
 
@@ -236,6 +242,20 @@ export default function InventoryPage() {
                 value={newItem.distributorId}
                 onChange={(e) => setNewItem((prev) => ({ ...prev, distributorId: e.target.value }))}
               />
+              <div className="flex gap-3">
+                <input
+                  placeholder="Rack Number"
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  value={newItem.rackNumber}
+                  onChange={(e) => setNewItem((prev) => ({ ...prev, rackNumber: e.target.value }))}
+                />
+                <input
+                  placeholder="Row/Shelf Number"
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-black outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  value={newItem.rowNumber}
+                  onChange={(e) => setNewItem((prev) => ({ ...prev, rowNumber: e.target.value }))}
+                />
+              </div>
               <div className="flex gap-2">
                 {editingItem && (
                   <motion.button
@@ -249,6 +269,8 @@ export default function InventoryPage() {
                         quantity: 0,
                         threshold: 10,
                         distributorId: "",
+                        rackNumber: "",
+                        rowNumber: "",
                       });
                     }}
                     whileHover={{ scale: 1.02 }}
@@ -314,6 +336,11 @@ export default function InventoryPage() {
                           Batch {i.batchNumber} · Expires{" "}
                           {i.expiryDate ? new Date(i.expiryDate).toLocaleDateString() : "-"}
                         </p>
+                        {(i.rackNumber || i.rowNumber) && (
+                          <p className="text-xs text-gray-600 mt-1">
+                            📍 Location: {i.rackNumber || "N/A"}/{i.rowNumber || "N/A"}
+                          </p>
+                        )}
                         {i.distributorId && (
                           <p className="text-xs text-gray-500 mt-1">
                             Distributor: {i.distributorId.slice(-8)}
