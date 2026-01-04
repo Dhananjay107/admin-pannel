@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import Layout from "../components/Layout";
 import AnimatedCard from "../components/AnimatedCard";
 import { FinanceIcon, RevenueIcon, ExpenseIcon, ProfitIcon, ChartBarIcon, DownloadIcon, CalendarIcon, HospitalIcon, ClockIcon } from "../components/Icons";
@@ -95,56 +96,73 @@ const BarChart = ({ data, width = 400, height = 200, color = "#1e40af" }: any) =
   );
 };
 
-// Pie Chart Component
-const PieChart = ({ data, size = 200 }: any) => {
+// Recharts Pie Chart Component
+const FinancePieChart = ({ data }: { data: Array<{ label: string; value: number }> }) => {
   if (!data || data.length === 0) return null;
   
+  const colors = ["#1e40af", "#059669", "#dc2626", "#7c3aed", "#ea580c", "#0891b2", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6"];
+  
   const total = data.reduce((sum: number, d: any) => sum + d.value, 0);
-  let currentAngle = -90;
-  const colors = ["#1e40af", "#059669", "#dc2626", "#7c3aed", "#ea580c", "#0891b2"];
+  
+  // Custom label formatter
+  const renderLabel = (entry: any) => {
+    const percentage = ((entry.value / total) * 100).toFixed(1);
+    return `${percentage}%`;
+  };
+  
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const data = payload[0];
+      const percentage = ((data.value / total) * 100).toFixed(1);
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">
+          <p className="font-semibold text-gray-900">{data.name}</p>
+          <p className="text-sm text-gray-600">
+            Amount: <span className="font-semibold text-blue-900">₹{data.value.toLocaleString()}</span>
+          </p>
+          <p className="text-xs text-gray-500">Percentage: {percentage}%</p>
+        </div>
+      );
+    }
+    return null;
+  };
   
   return (
-    <svg width={size} height={size} viewBox="0 0 200 200" className="w-full">
-      {data.map((d: any, i: number) => {
-        const percentage = (d.value / total) * 100;
-        const angle = (percentage / 100) * 360;
-        const startAngle = currentAngle;
-        const endAngle = currentAngle + angle;
-        
-        const x1 = 100 + 80 * Math.cos((startAngle * Math.PI) / 180);
-        const y1 = 100 + 80 * Math.sin((startAngle * Math.PI) / 180);
-        const x2 = 100 + 80 * Math.cos((endAngle * Math.PI) / 180);
-        const y2 = 100 + 80 * Math.sin((endAngle * Math.PI) / 180);
-        
-        const largeArc = angle > 180 ? 1 : 0;
-        
-        const pathData = [
-          `M 100 100`,
-          `L ${x1} ${y1}`,
-          `A 80 80 0 ${largeArc} 1 ${x2} ${y2}`,
-          `Z`
-        ].join(' ');
-        
-        currentAngle += angle;
-        
-        return (
-          <path
-            key={i}
-            d={pathData}
-            fill={colors[i % colors.length]}
-            stroke="white"
-            strokeWidth="2"
-          />
-        );
-      })}
-      <circle cx="100" cy="100" r="50" fill="white" />
-      <text x="100" y="95" textAnchor="middle" className="text-sm font-bold fill-gray-900">
-        {total.toLocaleString()}
-      </text>
-      <text x="100" y="110" textAnchor="middle" className="text-xs fill-gray-600">
-        Total
-      </text>
-    </svg>
+    <ResponsiveContainer width="100%" height={400}>
+      <PieChart>
+        <Pie
+          data={data}
+          cx="50%"
+          cy="50%"
+          labelLine={false}
+          label={renderLabel}
+          outerRadius={120}
+          innerRadius={60}
+          fill="#8884d8"
+          dataKey="value"
+          nameKey="label"
+          animationBegin={0}
+          animationDuration={800}
+        >
+          {data.map((entry: any, index: number) => (
+            <Cell 
+              key={`cell-${index}`} 
+              fill={colors[index % colors.length]}
+              stroke="#fff"
+              strokeWidth={2}
+            />
+          ))}
+        </Pie>
+        <Tooltip content={<CustomTooltip />} />
+        <Legend 
+          verticalAlign="bottom" 
+          height={36}
+          formatter={(value: string) => value}
+          wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }}
+        />
+      </PieChart>
+    </ResponsiveContainer>
   );
 };
 
@@ -492,28 +510,27 @@ export default function FinancePage() {
                     <ChartBarIcon className="w-5 h-5 text-blue-900" />
                     <h3 className="text-lg font-bold text-gray-900">Category Breakdown</h3>
                   </div>
-                  <div className="flex flex-col sm:flex-row items-center gap-6">
-                    <div className="flex-shrink-0">
-                      <PieChart data={categoryChartData} size={200} />
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      {categoryChartData.map((item: any, idx: number) => {
-                        const colors = ["#1e40af", "#059669", "#dc2626", "#7c3aed", "#ea580c", "#0891b2"];
-                        const percentage = ((item.value / categoryChartData.reduce((sum: number, d: any) => sum + d.value, 0)) * 100).toFixed(1);
-                        return (
-                          <div key={idx} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 rounded" style={{ backgroundColor: colors[idx % colors.length] }}></div>
-                              <span className="text-sm text-gray-700">{item.label}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="text-sm font-semibold text-gray-900">₹{item.value.toLocaleString()}</span>
-                              <span className="text-xs text-gray-500 ml-2">({percentage}%)</span>
-                            </div>
+                  <div className="w-full">
+                    <FinancePieChart data={categoryChartData} />
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-gray-200">
+                    {categoryChartData.map((item: any, idx: number) => {
+                      const colors = ["#1e40af", "#059669", "#dc2626", "#7c3aed", "#ea580c", "#0891b2", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6"];
+                      const total = categoryChartData.reduce((sum: number, d: any) => sum + d.value, 0);
+                      const percentage = ((item.value / total) * 100).toFixed(1);
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded" style={{ backgroundColor: colors[idx % colors.length] }}></div>
+                            <span className="text-sm font-medium text-gray-700">{item.label}</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div className="text-right">
+                            <span className="text-sm font-semibold text-gray-900">₹{item.value.toLocaleString()}</span>
+                            <span className="text-xs text-gray-500 ml-2">({percentage}%)</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </AnimatedCard>

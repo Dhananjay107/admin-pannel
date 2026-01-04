@@ -31,10 +31,12 @@ export default function SchedulesPage() {
   const [selectedDoctor, setSelectedDoctor] = useState<string>("");
   const [formData, setFormData] = useState({
     doctorId: "",
+    scheduleType: "single", // "single" | "weekday" | "weekend" | "daily" | "particular"
     dayOfWeek: "monday",
+    selectedDays: [] as string[],
     startTime: "09:00",
     endTime: "17:00",
-    slotDuration: 15,
+    slotDuration: 30,
     isActive: true,
     maxAppointmentsPerSlot: 1,
     hospitalId: "",
@@ -114,9 +116,39 @@ export default function SchedulesPage() {
     e.preventDefault();
     if (!token) return;
 
+    // Validate particular days selection
+    if (formData.scheduleType === "particular" && formData.selectedDays.length === 0) {
+      toast.error("Please select at least one day for particular schedule type");
+      return;
+    }
+
     try {
       const url = `${API_BASE}/api/schedules/doctor-schedule`;
       const method = "POST";
+
+      const payload: any = {
+        doctorId: formData.doctorId,
+        startTime: formData.startTime,
+        endTime: formData.endTime,
+        slotDuration: formData.slotDuration,
+        isActive: formData.isActive,
+        maxAppointmentsPerSlot: formData.maxAppointmentsPerSlot,
+        hospitalId: formData.hospitalId || undefined,
+      };
+
+      if (editingSchedule) {
+        // For editing, use single day mode
+        payload.dayOfWeek = formData.dayOfWeek;
+        payload.scheduleType = "single";
+      } else {
+        // For new schedules, use the selected schedule type
+        payload.scheduleType = formData.scheduleType;
+        if (formData.scheduleType === "single") {
+          payload.dayOfWeek = formData.dayOfWeek;
+        } else if (formData.scheduleType === "particular") {
+          payload.selectedDays = formData.selectedDays;
+        }
+      }
 
       const res = await fetch(url, {
         method,
@@ -124,11 +156,16 @@ export default function SchedulesPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
-        toast.success(editingSchedule ? "Schedule updated successfully!" : "Schedule created successfully!");
+        const data = await res.json();
+        if (editingSchedule) {
+          toast.success("Schedule updated successfully!");
+        } else {
+          toast.success(`Successfully created ${data.total || 1} schedule(s)!`);
+        }
         setShowModal(false);
         setEditingSchedule(null);
         resetForm();
@@ -146,7 +183,9 @@ export default function SchedulesPage() {
     setEditingSchedule(schedule);
     setFormData({
       doctorId: schedule.doctorId,
+      scheduleType: "single",
       dayOfWeek: schedule.dayOfWeek,
+      selectedDays: [],
       startTime: schedule.startTime,
       endTime: schedule.endTime,
       slotDuration: schedule.slotDuration,
@@ -181,10 +220,12 @@ export default function SchedulesPage() {
   const resetForm = () => {
     setFormData({
       doctorId: "",
+      scheduleType: "single",
       dayOfWeek: "monday",
+      selectedDays: [],
       startTime: "09:00",
       endTime: "17:00",
-      slotDuration: 15,
+      slotDuration: 30,
       isActive: true,
       maxAppointmentsPerSlot: 1,
       hospitalId: "",
@@ -193,14 +234,16 @@ export default function SchedulesPage() {
   };
 
   const generateSlotsForDoctor = async (doctorId: string) => {
-    if (!confirm("Generate slots for the next 30 days for this doctor?")) return;
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setDate(endDate.getDate() + 30);
+    const startDateStr = today.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const endDateStr = endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    
+    if (!confirm(`Generate slots from ${startDateStr} to ${endDateStr} (next 30 days) for this doctor?`)) return;
     if (!token) return;
 
     try {
-      const today = new Date();
-      const endDate = new Date(today);
-      endDate.setDate(endDate.getDate() + 30);
-
       const res = await fetch(`${API_BASE}/api/schedules/slots/generate`, {
         method: "POST",
         headers: {
@@ -223,7 +266,7 @@ export default function SchedulesPage() {
               "No slots were generated. Please ensure the doctor has active schedules configured for the selected days."
           );
         } else {
-          toast.success(`Generated ${data.count} slots successfully!`);
+          toast.success(`Generated ${data.count} slots from ${startDateStr} to ${endDateStr}!`);
         }
       } else {
         toast.error(data.message || "Failed to generate slots");
@@ -238,6 +281,32 @@ export default function SchedulesPage() {
   const getDoctorName = (doctorId: string) => {
     const doctor = doctors.find((d) => d._id === doctorId || d.id === doctorId);
     return doctor?.name || doctorId.slice(-8);
+  };
+
+  const formatScheduleDate = (createdAt?: string) => {
+    if (!createdAt) return "N/A";
+    const date = new Date(createdAt);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const scheduleDate = new Date(date);
+    scheduleDate.setHours(0, 0, 0, 0);
+    
+    const diffTime = scheduleDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return "Created Today";
+    } else if (diffDays === 1) {
+      return "Created Yesterday";
+    } else if (diffDays > 0 && diffDays <= 7) {
+      return `Created ${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
   };
 
   if (!user) return null;
@@ -297,7 +366,7 @@ export default function SchedulesPage() {
                         {schedule.isActive ? "Active" : "Inactive"}
                       </span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-3">
                       <div>
                         <p className="text-xs text-gray-500 mb-1">Day</p>
                         <p className="font-semibold text-gray-900 capitalize">{schedule.dayOfWeek}</p>
@@ -315,6 +384,12 @@ export default function SchedulesPage() {
                       <div>
                         <p className="text-xs text-gray-500 mb-1">Max per Slot</p>
                         <p className="font-semibold text-gray-900">{schedule.maxAppointmentsPerSlot || 1}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Created</p>
+                        <p className="font-semibold text-gray-900 text-xs">
+                          {formatScheduleDate((schedule as any).createdAt)}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -385,6 +460,7 @@ export default function SchedulesPage() {
                   onChange={(e) => setFormData({ ...formData, doctorId: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
+                  disabled={!!editingSchedule}
                 >
                   <option value="">Select a doctor</option>
                   {doctors.map((doctor) => (
@@ -395,21 +471,69 @@ export default function SchedulesPage() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Day of Week *</label>
-                <select
-                  value={formData.dayOfWeek}
-                  onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                >
-                  {DAYS_OF_WEEK.map((day) => (
-                    <option key={day.value} value={day.value}>
-                      {day.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!editingSchedule && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Schedule Type *</label>
+                  <select
+                    value={formData.scheduleType}
+                    onChange={(e) => setFormData({ ...formData, scheduleType: e.target.value, selectedDays: [] })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="single">Single Day</option>
+                    <option value="weekday">Weekdays (Mon-Fri)</option>
+                    <option value="weekend">Weekend (Sat-Sun)</option>
+                    <option value="daily">Daily (All Days)</option>
+                    <option value="particular">Particular Days</option>
+                  </select>
+                </div>
+              )}
+
+              {formData.scheduleType === "single" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Day of Week *</label>
+                  <select
+                    value={formData.dayOfWeek}
+                    onChange={(e) => setFormData({ ...formData, dayOfWeek: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    {DAYS_OF_WEEK.map((day) => (
+                      <option key={day.value} value={day.value}>
+                        {day.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {formData.scheduleType === "particular" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Select Days *</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {DAYS_OF_WEEK.map((day) => (
+                      <label key={day.value} className="flex items-center gap-2 p-2 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.selectedDays.includes(day.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, selectedDays: [...formData.selectedDays, day.value] });
+                            } else {
+                              setFormData({ ...formData, selectedDays: formData.selectedDays.filter(d => d !== day.value) });
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-700">{day.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {formData.selectedDays.length === 0 && (
+                    <p className="text-xs text-red-600 mt-1">Please select at least one day</p>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -439,13 +563,20 @@ export default function SchedulesPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Slot Duration (minutes) *</label>
                   <input
                     type="number"
-                    min="5"
-                    max="120"
+                    min="30"
+                    max="60"
+                    step="30"
                     value={formData.slotDuration}
-                    onChange={(e) => setFormData({ ...formData, slotDuration: parseInt(e.target.value) || 15 })}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 30;
+                      // Ensure value is between 30 and 60, and is a multiple of 30
+                      const clampedValue = Math.max(30, Math.min(60, Math.round(value / 30) * 30));
+                      setFormData({ ...formData, slotDuration: clampedValue });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">Minimum 30 minutes, Maximum 60 minutes (in 30-minute increments)</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Max Appointments per Slot</label>

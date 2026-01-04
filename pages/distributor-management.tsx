@@ -179,31 +179,108 @@ export default function DistributorManagementPage() {
         throw new Error(error.message || "Failed to update distributor");
       }
 
-      // Update login credentials if email and password are provided
-      if (distributorForm.email && distributorForm.password) {
-        const userRes = await fetch(`${API_BASE}/api/users/signup`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: distributorForm.name,
-            email: distributorForm.email,
-            password: distributorForm.password,
-            role: "DISTRIBUTOR",
-            distributorId: editingDistributor._id,
-          }),
+      // Update login credentials if email and/or password are provided
+      if (distributorForm.email || distributorForm.password) {
+        // First, check if a user already exists for this distributor
+        const existingUserRes = await fetch(`${API_BASE}/api/users?distributorId=${editingDistributor._id}&role=DISTRIBUTOR`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (!userRes.ok) {
-          const error = await userRes.json().catch(() => ({}));
-          toast("Distributor updated but failed to update login credentials: " + (error.message || "Unknown error"), {
-            icon: "⚠️",
-            duration: 4000,
-          });
+        if (existingUserRes.ok) {
+          const users = await existingUserRes.json();
+          const userList = Array.isArray(users) ? users : (users.users || []);
+          
+          if (userList.length > 0) {
+            // User exists - update the existing user
+            const existingUser = userList[0];
+            const userId = existingUser._id || existingUser.id;
+            const currentEmail = (existingUser.email || "").toLowerCase().trim();
+            const newEmail = distributorForm.email ? distributorForm.email.trim() : "";
+            
+            const updatePayload: any = {
+              name: distributorForm.name,
+            };
+            
+            // Update email if provided and different from current (case-insensitive comparison)
+            // Note: Backend will check if email is already in use by another user
+            if (newEmail !== "" && newEmail.toLowerCase() !== currentEmail) {
+              updatePayload.email = newEmail;
+            }
+            
+            // Only update password if provided
+            if (distributorForm.password && distributorForm.password.trim() !== "") {
+              updatePayload.password = distributorForm.password.trim();
+            }
+
+            // Only make the API call if there's something to update
+            if (updatePayload.email || updatePayload.password) {
+              const userRes = await fetch(`${API_BASE}/api/users/${userId}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(updatePayload),
+              });
+
+              if (!userRes.ok) {
+                const error = await userRes.json().catch(() => ({}));
+                const errorMessage = error.message || "Unknown error";
+                
+                // Provide more helpful error message
+                if (errorMessage.includes("already in use") || errorMessage.includes("duplicate")) {
+                  toast.error(`Cannot update email: "${newEmail}" is already in use by another user. Please use a different email address.`, {
+                    duration: 5000,
+                  });
+                } else {
+                  toast.error("Distributor updated but failed to update login credentials: " + errorMessage);
+                }
+              } else {
+                const successMessage = updatePayload.email && updatePayload.password
+                  ? "Distributor, email, and password updated successfully!"
+                  : updatePayload.email
+                  ? "Distributor and email updated successfully!"
+                  : "Distributor and password updated successfully!";
+                toast.success(successMessage);
+              }
+            } else {
+              // No changes to email or password
+              if (newEmail === currentEmail && newEmail !== "") {
+                toast.success("Distributor updated successfully! (Email unchanged)");
+              } else {
+                toast.success("Distributor updated successfully!");
+              }
+            }
+          } else {
+            // User doesn't exist - create a new user (requires both email and password)
+            if (!distributorForm.email || !distributorForm.password) {
+              toast.error("Email and password are required to create login credentials");
+            } else {
+              const userRes = await fetch(`${API_BASE}/api/users/signup`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  name: distributorForm.name,
+                  email: distributorForm.email.trim(),
+                  password: distributorForm.password.trim(),
+                  role: "DISTRIBUTOR",
+                  distributorId: editingDistributor._id,
+                }),
+              });
+
+              if (!userRes.ok) {
+                const error = await userRes.json().catch(() => ({}));
+                toast.error("Distributor updated but failed to create login credentials: " + (error.message || "Unknown error"));
+              } else {
+                toast.success("Distributor and login credentials created successfully!");
+              }
+            }
+          }
         } else {
-          toast.success("Distributor and login credentials updated successfully!");
+          toast.error("Failed to check existing user credentials");
         }
       } else {
         toast.success("Distributor updated successfully!");
@@ -241,17 +318,9 @@ export default function DistributorManagementPage() {
 
   const openEditModal = async (distributor: any) => {
     setEditingDistributor(distributor);
-    setDistributorForm({ 
-      name: distributor.name || "", 
-      address: distributor.address || "", 
-      phone: distributor.phone || "",
-      email: "",
-      password: ""
-    });
-    setShowEditModal(true);
-    setShowEditPassword(false);
-
-    // Fetch existing user email for this distributor
+    
+    // Fetch existing user email for this distributor BEFORE setting form
+    let existingEmail = "";
     if (token) {
       try {
         const userRes = await fetch(`${API_BASE}/api/users?distributorId=${distributor._id}&role=DISTRIBUTOR`, {
@@ -264,10 +333,7 @@ export default function DistributorManagementPage() {
           if (userList.length > 0) {
             const distributorUser = userList[0];
             if (distributorUser && distributorUser.email) {
-              setDistributorForm(prev => ({
-                ...prev,
-                email: distributorUser.email
-              }));
+              existingEmail = distributorUser.email;
             }
           }
         }
@@ -276,6 +342,17 @@ export default function DistributorManagementPage() {
         console.log("Could not fetch distributor user email:", e);
       }
     }
+    
+    // Set form with all data at once (including fetched email)
+    setDistributorForm({ 
+      name: distributor.name || "", 
+      address: distributor.address || "", 
+      phone: distributor.phone || "",
+      email: existingEmail,
+      password: ""
+    });
+    setShowEditModal(true);
+    setShowEditPassword(false);
   };
 
   if (!user) return null;
@@ -715,7 +792,7 @@ export default function DistributorManagementPage() {
                       className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
                       placeholder="distributor@example.com"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Leave empty to keep existing credentials</p>
+                    <p className="text-xs text-gray-500 mt-1">Enter new email to update, or leave empty to keep existing email</p>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -728,7 +805,7 @@ export default function DistributorManagementPage() {
                         value={distributorForm.password || ""}
                         onChange={(e) => setDistributorForm({ ...distributorForm, password: e.target.value })}
                         className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:border-blue-900 focus:ring-2 focus:ring-blue-100 outline-none bg-white"
-                        placeholder="Enter new password (leave empty to keep existing)"
+                        placeholder="Enter new password (leave empty to keep existing password)"
                       />
                       <button
                         type="button"
