@@ -160,6 +160,7 @@ export default function PharmacyManagementPage() {
             password: pharmacyForm.password,
             role: "PHARMACY_STAFF",
             pharmacyId: createdPharmacy._id,
+            phone: pharmacyForm.phone ? String(pharmacyForm.phone).replace(/\D/g, "").slice(-10) : undefined,
           }),
         });
 
@@ -238,6 +239,9 @@ export default function PharmacyManagementPage() {
             updatePayload.password = pharmacyForm.password;
           }
           if (pharmacyForm.name) updatePayload.name = pharmacyForm.name;
+          if (pharmacyForm.phone !== undefined) {
+            updatePayload.phone = pharmacyForm.phone ? String(pharmacyForm.phone).replace(/\D/g, "").slice(-10) : pharmacyForm.phone;
+          }
 
           const userRes = await fetch(`${API_BASE}/api/users/${existingUser._id || existingUser.id}`, {
             method: "PATCH",
@@ -291,6 +295,7 @@ export default function PharmacyManagementPage() {
                 password: pharmacyForm.password,
                 role: "PHARMACY_STAFF",
                 pharmacyId: editingPharmacy._id, // Ensure it's linked to THIS pharmacy
+                phone: pharmacyForm.phone ? String(pharmacyForm.phone).replace(/\D/g, "").slice(-10) : undefined,
               }),
             });
 

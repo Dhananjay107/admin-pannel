@@ -34,21 +34,35 @@ interface LayoutProps {
   currentPage?: string;
 }
 
-const navItems = [
-  { path: "/dashboard", label: "Overview", icon: DashboardIcon },
-  { path: "/hospital-management", label: "Hospital Management", icon: HospitalIcon },
-  { path: "/pharmacy-management", label: "Pharmacy Management", icon: PharmacyIcon },
-  { path: "/distributor-management", label: "Distributor Management", icon: DistributorIcon },
-  { path: "/doctor-management", label: "Doctor Management", icon: DoctorIcon },
-  { path: "/schedules", label: "Doctor Schedules", icon: ClockIcon },
-  { path: "/patient-panel", label: "Patient Panel", icon: PatientIcon },
-  { path: "/orders", label: "Order Management", icon: OrdersIcon },
-  { path: "/reports", label: "Prescription Reports", icon: ReportsIcon },
-  { path: "/templates", label: "Document Templates", icon: TemplatesIcon },
-  { path: "/activity-panel", label: "Activity", icon: ActivityIcon },
-  { path: "/finance", label: "Finance", icon: FinanceIcon },
-  { path: "/settings", label: "Settings", icon: SettingsIcon },
+type NavItem = {
+  path: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  section?: string;
+  superAdminOnly?: boolean;
+};
+
+const navItems: NavItem[] = [
+  { path: "/dashboard", label: "Overview", icon: DashboardIcon, section: "Home" },
+  { path: "/hospital-management", label: "Hospitals", icon: HospitalIcon, section: "Management" },
+  { path: "/pharmacy-management", label: "Pharmacies", icon: PharmacyIcon, section: "Management" },
+  { path: "/branch-stock", label: "Branch Stock", icon: PharmacyIcon, section: "Management", superAdminOnly: true },
+  { path: "/distributor-management", label: "Distributors", icon: DistributorIcon, section: "Management" },
+  { path: "/doctor-management", label: "Doctors", icon: DoctorIcon, section: "Management" },
+  { path: "/schedules", label: "Schedules", icon: ClockIcon, section: "Operations" },
+  { path: "/patient-panel", label: "Patients", icon: PatientIcon, section: "Operations" },
+  { path: "/orders", label: "Orders", icon: OrdersIcon, section: "Operations" },
+  { path: "/reports", label: "Reports", icon: ReportsIcon, section: "Reports" },
+  { path: "/templates", label: "Templates", icon: TemplatesIcon, section: "Reports" },
+  { path: "/activity-panel", label: "Activity", icon: ActivityIcon, section: "Reports" },
+  { path: "/finance", label: "Finance", icon: FinanceIcon, section: "Reports" },
+  { path: "/settings", label: "Settings", icon: SettingsIcon, section: "System" },
 ];
+
+function getBreadcrumb(pathname: string, items: NavItem[]): string {
+  const item = items.find((i) => i.path === pathname);
+  return item?.label ?? pathname.replace(/^\//, "").replace(/-/g, " ");
+}
 
 export default function Layout({ children, user, currentPage }: LayoutProps) {
   const router = useRouter();
@@ -162,37 +176,44 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
                 </button>
               </div>
 
-              {/* Mobile Navigation */}
-              <nav className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
-                {navItems.map((item, index) => {
-                  const isActive = router.pathname === item.path;
-                  return (
-                    <motion.button
-                      key={item.path}
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: 0.1 + index * 0.05 }}
-                      onClick={() => {
-                        router.push(item.path);
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                        isActive
-                          ? "bg-blue-50 text-blue-900 border-l-4 border-blue-900 shadow-sm"
-                          : "text-gray-700 hover:bg-gray-50 hover:text-blue-900 border-l-4 border-transparent"
-                      }`}
-                    >
-                      <item.icon className={`w-5 h-5 ${isActive ? "text-blue-900" : "text-gray-600"}`} />
-                      <span className="flex-1 text-left">{item.label}</span>
-                      {isActive && (
-                        <motion.div
-                          layoutId="activeIndicatorMobile"
-                          className="h-2 w-2 rounded-full bg-blue-900"
-                        />
-                      )}
-                    </motion.button>
-                  );
-                })}
+              {/* Mobile Navigation - Grouped by section */}
+              <nav className="flex-1 overflow-y-auto px-4 py-4">
+                {(() => {
+                  const filtered = navItems.filter((item) => !item.superAdminOnly || user?.role === "SUPER_ADMIN");
+                  const sections = Array.from(new Set(filtered.map((i) => i.section || "Main")));
+                  return sections.map((section) => (
+                    <div key={section} className="mb-5">
+                      <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        {section}
+                      </p>
+                      <div className="space-y-1">
+                        {filtered.filter((i) => (i.section || "Main") === section).map((item, index) => {
+                          const isActive = router.pathname === item.path;
+                          return (
+                            <motion.button
+                              key={item.path}
+                              initial={{ x: -10, opacity: 0 }}
+                              animate={{ x: 0, opacity: 1 }}
+                              transition={{ delay: index * 0.03 }}
+                              onClick={() => {
+                                router.push(item.path);
+                                setIsMobileMenuOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                                isActive
+                                  ? "bg-blue-50 text-blue-900 border-l-2 border-blue-600"
+                                  : "text-gray-700 hover:bg-gray-50 border-l-2 border-transparent"
+                              }`}
+                            >
+                              <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-blue-600" : "text-gray-500"}`} />
+                              <span className="flex-1 text-left">{item.label}</span>
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ));
+                })()}
               </nav>
 
               {/* Mobile Footer */}
@@ -250,36 +271,40 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
           </motion.div>
         </div>
 
-        {/* Scrollable Navigation */}
-        <nav className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
-          {navItems.map((item, index) => {
-            const isActive = router.pathname === item.path;
-            return (
-              <motion.button
-                key={item.path}
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.1 + index * 0.05 }}
-                onClick={() => router.push(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                  isActive
-                    ? "bg-blue-50 text-blue-900 border-l-4 border-blue-900 shadow-sm"
-                    : "text-gray-700 hover:bg-gray-50 hover:text-blue-900 border-l-4 border-transparent"
-                }`}
-                whileHover={{ scale: 1.02, x: 4 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <item.icon className={`w-5 h-5 ${isActive ? "text-blue-900" : "text-gray-600"}`} />
-                <span className="flex-1 text-left">{item.label}</span>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeIndicator"
-                    className="h-2 w-2 rounded-full bg-blue-900"
-                  />
-                )}
-              </motion.button>
-            );
-          })}
+        {/* Scrollable Navigation - Grouped by section */}
+        <nav className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
+          {(() => {
+            const filtered = navItems.filter((item) => !item.superAdminOnly || user?.role === "SUPER_ADMIN");
+            const sections = Array.from(new Set(filtered.map((i) => i.section || "Main")));
+            return sections.map((section) => (
+              <div key={section} className="mb-5">
+                <p className="px-3 mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  {section}
+                </p>
+                <div className="space-y-1">
+                  {filtered.filter((i) => (i.section || "Main") === section).map((item) => {
+                    const isActive = router.pathname === item.path;
+                    return (
+                      <motion.button
+                        key={item.path}
+                        onClick={() => router.push(item.path)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                          isActive
+                            ? "bg-blue-50 text-blue-900 border-l-2 border-blue-600"
+                            : "text-gray-700 hover:bg-gray-50 hover:text-blue-800 border-l-2 border-transparent"
+                        }`}
+                        whileHover={{ x: 2 }}
+                        whileTap={{ scale: 0.99 }}
+                      >
+                        <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-blue-600" : "text-gray-500"}`} />
+                        <span className="flex-1 text-left">{item.label}</span>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
+            ));
+          })()}
         </nav>
 
         {/* Fixed Footer with User Info */}
@@ -314,12 +339,20 @@ export default function Layout({ children, user, currentPage }: LayoutProps) {
 
       {/* Main Content - Scrollable with Sidebar Offset */}
       <motion.main
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="flex-1 overflow-y-auto h-full w-full lg:ml-72"
+        transition={{ duration: 0.3 }}
+        className="flex-1 overflow-y-auto h-full w-full lg:ml-72 bg-gray-50/80"
       >
-        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 pb-12 pt-16 lg:pt-6">
+        {/* Breadcrumb - easy "you are here" */}
+        <div className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-2">
+          <div className="max-w-7xl mx-auto flex items-center gap-2 text-sm">
+            <span className="text-gray-500">Admin</span>
+            <span className="text-gray-300">/</span>
+            <span className="font-medium text-gray-800">{getBreadcrumb(router.pathname, navItems)}</span>
+          </div>
+        </div>
+        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 pb-12 pt-4">
           {children}
         </div>
       </motion.main>
